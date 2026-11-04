@@ -91,7 +91,7 @@
               </div>
               <div class="info-item">
                 <span class="label">Precio:</span>
-                <span class="value price">${{ formatPrice(motocicletaSeleccionada.precio) }}</span>
+                <span class="value price">{{ formatPrice(motocicletaSeleccionada.precio) }}</span>
               </div>
             </div>
             <div class="description">
@@ -180,16 +180,17 @@ export default {
     calcularCredito(motocicleta) {
       this.$router.push({
         name: 'Calculadora',
-        query: { monto: motocicleta.precio }
+        params: { id: String(motocicleta.id) },
+        query: { monto: motocicleta.precio, motocicletaId: motocicleta.id }
       })
     },
     solicitarCredito(motocicleta) {
-  // Opción A: Navegando por URL
-  this.$router.push(`/catalogo/${motocicleta.id}`);
-  
-  // Opción B: Navegando por nombre de ruta
-  // this.$router.push({ name: 'DetalleMotocicleta', params: { id: motocicleta.id } });
-},
+      this.$router.push({
+        name: 'Calculadora',
+        params: { id: String(motocicleta.id) },
+        query: { monto: motocicleta.precio, motocicletaId: motocicleta.id }
+      })
+    },  
     formatPrice(price) {
       return new Intl.NumberFormat('es-MX', {
         style: 'currency',

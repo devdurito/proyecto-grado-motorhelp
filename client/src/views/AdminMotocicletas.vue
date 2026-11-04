@@ -67,8 +67,8 @@
                   type="number" 
                   v-model="formData.año" 
                   class="form-input"
-                  min="2000"
-                  max="2024"
+                  :min="yearMin"
+                  :max="yearMax"
                   required
                 >
               </div>
@@ -187,6 +187,12 @@ export default {
     },
     loading() {
       return this.motocicletasStore.loading
+    },
+    yearMin() {
+      return new Date().getFullYear()
+    },
+    yearMax() {
+      return this.yearMin + 1
     }
   },
   async mounted() {
@@ -219,8 +225,16 @@ export default {
       const añoNum = parseInt(this.formData.año)
       const precioNum = parseFloat(this.formData.precio)
       
+      const currentYear = new Date().getFullYear()
+      const nextYear = currentYear + 1
+      
       if (isNaN(añoNum) || añoNum <= 0) {
         alert('El año debe ser un número válido mayor a 0')
+        return
+      }
+
+      if (añoNum < currentYear || añoNum > nextYear) {
+        alert(`El año debe estar entre ${currentYear} y ${nextYear}`)
         return
       }
       
@@ -235,6 +249,7 @@ export default {
         const datosParaEnviar = {
           ...this.formData,
           año: añoNum,
+          anio: añoNum,
           precio: precioNum
         }
         

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS motocicletas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     marca VARCHAR(100) NOT NULL,
     modelo VARCHAR(100) NOT NULL,
-    año INT NOT NULL,
+    anio INT NOT NULL,
     precio DECIMAL(10,2) NOT NULL,
     descripcion TEXT,
     cilindrada VARCHAR(50),
@@ -35,8 +35,14 @@ CREATE TABLE IF NOT EXISTS solicitudes_credito (
     id INT AUTO_INCREMENT PRIMARY KEY,
     usuario_id INT NOT NULL,
     motocicleta_id INT NOT NULL,
-    monto DECIMAL(10,2) NOT NULL,
+    nombre_cliente VARCHAR(255),
+    ci_cliente VARCHAR(50),
+    telefono_cliente VARCHAR(30),
+    cuota_inicial DECIMAL(12,2) DEFAULT 0,
+    monto_solicitado DECIMAL(10,2) NOT NULL,
     plazo INT NOT NULL,
+    tasa_interes DECIMAL(5,2) NOT NULL,
+    salario DECIMAL(10,2),
     ingresos_mensuales DECIMAL(10,2),
     direccion TEXT,
     estado ENUM('pendiente', 'aprobada', 'rechazada') DEFAULT 'pendiente',
@@ -52,7 +58,7 @@ INSERT INTO usuarios (email, password, nombre, telefono, role) VALUES
 ('admin@motorhelp.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrador', '1234567890', 'admin');
 
 -- Insertar algunas motocicletas de ejemplo
-INSERT INTO motocicletas (marca, modelo, año, precio, descripcion, cilindrada, tipo) VALUES 
+INSERT INTO motocicletas (marca, modelo, anio, precio, descripcion, cilindrada, tipo) VALUES 
 ('Honda', 'CBR600RR', 2023, 850000, 'Deportiva de alta gama con tecnología avanzada', '600cc', 'Deportiva'),
 ('Yamaha', 'MT-07', 2023, 650000, 'Naked bike con excelente relación precio-calidad', '700cc', 'Naked'),
 ('Kawasaki', 'Ninja 400', 2023, 520000, 'Perfecta para principiantes y pilotos experimentados', '400cc', 'Deportiva'),

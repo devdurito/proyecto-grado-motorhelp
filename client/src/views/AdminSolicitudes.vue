@@ -39,6 +39,12 @@
           
           <div class="solicitud-details">
             <div class="detail-group">
+              <h4>Cliente</h4>
+              <p>{{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}</p>
+              <p>CI: {{ solicitud.ci_cliente || 'No registrado' }}</p>
+              <p>Tel: {{ solicitud.telefono_cliente || solicitud.telefono || 'No registrado' }}</p>
+            </div>
+            <div class="detail-group">
               <h4>Motocicleta</h4>
               <p>{{ solicitud.marca }} {{ solicitud.modelo }}</p>
             </div>
@@ -69,10 +75,98 @@
               Rechazar
             </button>
           </div>
+          <div class="solicitud-actions">
+            <button @click="descargarPDF(solicitud.id)" class="btn btn-secondary">
+              Descargar PDF
+            </button>
+            <button v-if="solicitud.estado === 'aprobada'" @click="abrirControlPagos(solicitud)" class="btn btn-secondary">
+              Control de Pagos
+            </button>
+          </div>
           
           <div class="solicitud-fecha">
             <small>Solicitado el: {{ formatDate(solicitud.created_at) }}</small>
           </div>
+        </div>
+      </div>
+
+      <div class="approved-section">
+        <div class="section-title-row">
+          <h2>Créditos Aprobados</h2>
+        </div>
+
+        <div v-if="solicitudesAprobadas.length === 0" class="no-data">
+          <p>No hay créditos aprobados todavía.</p>
+        </div>
+
+        <div v-else class="approved-table-wrapper">
+          <table class="approved-table">
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Motocicleta</th>
+                <th>Monto</th>
+                <th>Plazo</th>
+                <th>Cuota</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="credito in solicitudesAprobadas" :key="credito.id">
+                <td>{{ credito.nombre_cliente || credito.usuario_nombre || 'Sin nombre' }}</td>
+                <td>{{ credito.marca }} {{ credito.modelo }}</td>
+                <td>{{ formatPrice(credito.monto) }}</td>
+                <td>{{ credito.plazo }} meses</td>
+                <td>{{ formatPrice(calcularCuotaCredito(credito)) }}</td>
+                <td><span :class="`badge badge-${getStatusClass(credito.estado)}`">{{ credito.estado }}</span></td>
+                <td>
+                  <button @click="abrirControlPagos(credito)" class="btn btn-secondary btn-small">
+                    Ver pago
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="modalPagosVisible" class="modal-backdrop" @click.self="cerrarControlPagos">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Control de Pagos</h3>
+          <button class="btn btn-danger btn-small" @click="cerrarControlPagos">Cerrar</button>
+        </div>
+
+        <div v-if="pagosCredito.length === 0" class="no-data">
+          <p>No hay cuotas registradas para este crédito.</p>
+        </div>
+
+        <div v-else class="payments-table-wrapper">
+          <table class="payments-table">
+            <thead>
+              <tr>
+                <th>Cuota</th>
+                <th>Monto</th>
+                <th>Estado</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="pago in pagosCredito" :key="pago.id || pago.numero_cuota">
+                <td>{{ pago.numero_cuota }}</td>
+                <td>{{ formatPrice(pago.monto) }}</td>
+                <td>{{ pago.estado || 'pendiente' }}</td>
+                <td>
+                  <button v-if="(pago.estado || 'pendiente') !== 'pagado'" @click="registrarPago(pago)" class="btn btn-primary btn-small">
+                    Registrar pago
+                  </button>
+                  <span v-else class="text-success">Pagado</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -88,7 +182,10 @@ export default {
     return {
       solicitudes: [],
       filtroEstado: '',
-      loading: true
+      loading: true,
+      modalPagosVisible: false,
+      pagosCredito: [],
+      creditoSeleccionado: null
     }
   },
   computed: {
@@ -97,6 +194,9 @@ export default {
         return this.solicitudes
       }
       return this.solicitudes.filter(s => s.estado === this.filtroEstado)
+    },
+    solicitudesAprobadas() {
+      return this.solicitudes.filter(s => s.estado === 'aprobada')
     }
   },
   async mounted() {
@@ -112,6 +212,59 @@ export default {
         alert('Error al cargar las solicitudes')
       } finally {
         this.loading = false
+      }
+    },
+
+    calcularCuotaCredito(credito) {
+      const monto = Number(credito.monto || 0)
+      const plazo = Number(credito.plazo || 0)
+      const tasa = Number(credito.tasa_interes || 0.02)
+      const tasaMensual = tasa > 1 ? tasa / 100 : tasa
+
+      if (!monto || !plazo) return 0
+      return monto > 0 && plazo > 0
+        ? (monto * tasaMensual * Math.pow(1 + tasaMensual, plazo)) /
+          (Math.pow(1 + tasaMensual, plazo) - 1)
+        : 0
+    },
+
+    async abrirControlPagos(credito) {
+      this.creditoSeleccionado = credito
+      this.modalPagosVisible = true
+      await this.cargarPagos(credito.id)
+    },
+
+    cerrarControlPagos() {
+      this.modalPagosVisible = false
+      this.creditoSeleccionado = null
+      this.pagosCredito = []
+    },
+
+    async cargarPagos(creditoId) {
+      try {
+        const response = await axios.get(`/api/solicitudes-credito/${creditoId}/pagos`)
+        this.pagosCredito = response.data
+      } catch (error) {
+        console.error('Error cargando pagos:', error)
+        this.pagosCredito = []
+      }
+    },
+
+    async registrarPago(pago) {
+      try {
+        await axios.post(`/api/solicitudes-credito/${this.creditoSeleccionado.id}/pagos`, {
+          numero_cuota: pago.numero_cuota,
+          monto: pago.monto,
+          estado: 'pagado',
+          fecha_pago: new Date().toISOString()
+        })
+
+        this.pagosCredito = this.pagosCredito.map(item =>
+          item.numero_cuota === pago.numero_cuota ? { ...item, estado: 'pagado' } : item
+        )
+      } catch (error) {
+        console.error('Error registrando pago:', error)
+        alert('No se pudo registrar el pago.')
       }
     },
     
@@ -155,12 +308,36 @@ export default {
         }
       }
     },
+
+    async descargarPDF(id) {
+      try {
+        const response = await axios.get(`/api/solicitudes-credito/${id}/pdf`, {
+          responseType: 'blob',
+          headers: {
+            Authorization: 'Bearer ' + localStorage.getItem('token')
+          }
+        })
+
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', `solicitud-credito-${id}.pdf`)
+        document.body.appendChild(link)
+        link.click()
+        setTimeout(() => window.URL.revokeObjectURL(url), 1500)
+        link.remove()
+      } catch (error) {
+        console.error('Error descargando PDF:', error)
+        alert('No se pudo generar el PDF de la solicitud.')
+      }
+    },
     
     formatPrice(price) {
-      return new Intl.NumberFormat('es-MX', {
-        style: 'currency',
-        currency: 'MXN'
-      }).format(price)
+      const value = Number(price || 0)
+      return `BOB ${value.toLocaleString('es-BO', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}`
     },
     
     formatDate(dateString) {
@@ -179,32 +356,40 @@ export default {
 
 <style scoped>
 .admin-solicitudes {
-  padding: 2rem 0;
+  padding: 2rem 0 3rem;
 }
 
 .admin-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .admin-header h1 {
   color: var(--primary-blue);
   margin: 0;
+  font-size: clamp(2rem, 2.6vw, 2.6rem);
 }
 
 .filtros select {
-  padding: 0.5rem 1rem;
-  border: 2px solid var(--gray-200);
-  border-radius: 0.5rem;
-  background: var(--white);
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--gray-200);
+  border-radius: 0.8rem;
+  background: rgba(255,255,255,0.9);
+  color: var(--gray-700);
+  font-weight: 600;
 }
 
 .no-data {
   text-align: center;
   padding: 3rem;
   color: var(--gray-600);
+  background: rgba(255,255,255,0.8);
+  border-radius: 1rem;
+  border: 1px solid rgba(15,23,42,0.05);
 }
 
 .solicitudes-list {
@@ -215,12 +400,16 @@ export default {
 
 .solicitud-card {
   padding: 2rem;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
+  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.96));
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 1.2rem;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
 }
 
 .solicitud-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
 }
 
 .solicitud-header {
@@ -229,59 +418,61 @@ export default {
   align-items: flex-start;
   margin-bottom: 1.5rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid var(--gray-200);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .solicitud-info h3 {
   color: var(--primary-blue);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 1.35rem;
 }
 
 .solicitud-info p {
   color: var(--gray-600);
-  margin-bottom: 0.25rem;
-  font-size: 0.875rem;
+  margin-bottom: 0.2rem;
+  font-size: 0.9rem;
 }
 
 .solicitud-details {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1.25rem;
   margin-bottom: 1.5rem;
 }
 
 .detail-group h4 {
   color: var(--gray-700);
-  font-size: 0.875rem;
+  font-size: 0.78rem;
   margin-bottom: 0.5rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .detail-group p {
   color: var(--gray-800);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .detail-group .monto {
-  color: var(--success);
-  font-size: 1.25rem;
-  font-weight: 600;
+  color: var(--secondary-blue);
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
 .solicitud-address {
   margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: var(--gray-50);
-  border-radius: 0.5rem;
+  padding: 1rem 1.1rem;
+  background: linear-gradient(180deg, rgba(148,163,184,0.08), rgba(255,255,255,0.6));
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 0.8rem;
 }
 
 .solicitud-address h4 {
   color: var(--gray-700);
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   margin-bottom: 0.5rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .solicitud-address p {
@@ -297,7 +488,7 @@ export default {
 
 .solicitud-actions .btn {
   flex: 1;
-  padding: 0.75rem 1.5rem;
+  padding: 0.8rem 1.3rem;
 }
 
 .solicitud-fecha {

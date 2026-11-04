@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+﻿import { defineStore } from 'pinia'
 import axios from 'axios'
 
 export const useAuthStore = defineStore('auth', {
@@ -17,19 +17,18 @@ export const useAuthStore = defineStore('auth', {
       try {
         const response = await axios.post('/api/auth/login', credentials)
         const { token, user } = response.data
-        
+
         this.token = token
         this.user = user
         localStorage.setItem('token', token)
-        
-        // Configurar axios con el token
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-        
+
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + token
+
         return { success: true }
       } catch (error) {
-        return { 
-          success: false, 
-          message: error.response?.data?.message || 'Error al iniciar sesión' 
+        return {
+          success: false,
+          message: error.response?.data?.message || 'Error al iniciar sesión'
         }
       }
     },
@@ -38,19 +37,18 @@ export const useAuthStore = defineStore('auth', {
       try {
         const response = await axios.post('/api/auth/register', userData)
         const { token, user } = response.data
-        
+
         this.token = token
         this.user = user
         localStorage.setItem('token', token)
-        
-        // Configurar axios con el token
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-        
+
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + token
+
         return { success: true }
       } catch (error) {
-        return { 
-          success: false, 
-          message: error.response?.data?.message || 'Error al registrarse' 
+        return {
+          success: false,
+          message: error.response?.data?.message || 'Error al registrarse'
         }
       }
     },
@@ -64,13 +62,8 @@ export const useAuthStore = defineStore('auth', {
 
     initializeAuth() {
       if (this.token) {
-        axios.defaults.headers.common['Authorization'] = `Bearer ${this.token}`
+        axios.defaults.headers.common['Authorization'] = 'Bearer ' + this.token
       }
     }
   }
 })
-
-
-
-
-

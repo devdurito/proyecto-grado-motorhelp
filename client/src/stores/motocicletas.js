@@ -43,9 +43,16 @@ export const useMotocicletasStore = defineStore('motocicletas', {
           if (key === 'imagen' && motocicletaData[key]) {
             formData.append('imagen', motocicletaData[key])
           } else if (motocicletaData[key] !== null && motocicletaData[key] !== undefined && motocicletaData[key] !== '') {
-            // Convertir a string para FormData
             const value = motocicletaData[key]
             const stringValue = typeof value === 'number' ? value.toString() : String(value)
+
+            if (key === 'año' || key === 'anio') {
+              formData.append('año', stringValue)
+              formData.append('anio', stringValue)
+              console.log(`Agregando campo ${key}:`, stringValue)
+              return
+            }
+
             formData.append(key, stringValue)
             console.log(`Agregando campo ${key}:`, stringValue)
           }
@@ -83,9 +90,16 @@ export const useMotocicletasStore = defineStore('motocicletas', {
           if (key === 'imagen' && motocicletaData[key]) {
             formData.append('imagen', motocicletaData[key])
           } else if (motocicletaData[key] !== null && motocicletaData[key] !== undefined && motocicletaData[key] !== '') {
-            // Convertir a string para FormData
             const value = motocicletaData[key]
             const stringValue = typeof value === 'number' ? value.toString() : String(value)
+
+            if (key === 'año' || key === 'anio') {
+              formData.append('año', stringValue)
+              formData.append('anio', stringValue)
+              console.log(`Agregando campo ${key} (UPDATE):`, stringValue)
+              return
+            }
+
             formData.append(key, stringValue)
             console.log(`Agregando campo ${key} (UPDATE):`, stringValue)
           }
