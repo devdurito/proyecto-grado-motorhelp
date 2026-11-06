@@ -20,11 +20,14 @@ CREATE TABLE IF NOT EXISTS motocicletas (
     marca VARCHAR(100) NOT NULL,
     modelo VARCHAR(100) NOT NULL,
     anio INT NOT NULL,
-    precio DECIMAL(10,2) NOT NULL,
+    precio DECIMAL(10,2) NOT NULL DEFAULT 0,
+    costo_compra DECIMAL(10,2) NOT NULL DEFAULT 0,
+    precio_venta DECIMAL(10,2) NOT NULL DEFAULT 0,
     descripcion TEXT,
     cilindrada VARCHAR(50),
     tipo VARCHAR(50),
     imagen VARCHAR(255),
+    stock INT NOT NULL DEFAULT 0,
     activa BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -58,9 +61,9 @@ INSERT INTO usuarios (email, password, nombre, telefono, role) VALUES
 ('admin@motorhelp.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Administrador', '1234567890', 'admin');
 
 -- Insertar algunas motocicletas de ejemplo
-INSERT INTO motocicletas (marca, modelo, anio, precio, descripcion, cilindrada, tipo) VALUES 
-('Honda', 'CB500F', 2023, 5500.00, 'Motocicleta deportiva de media cilindrada', '500cc', 'Deportiva'),
-('Yamaha', 'MT-07', 2023, 7200.00, 'Motocicleta naked de alto rendimiento', '700cc', 'Naked'),
-('Suzuki', 'GSX-R750', 2022, 8900.00, 'Motocicleta deportiva de alta gama', '750cc', 'Deportiva'),
-('Kawasaki', 'Ninja 400', 2023, 4200.00, 'Motocicleta deportiva para principiantes', '400cc', 'Deportiva');
+INSERT INTO motocicletas (marca, modelo, anio, precio, costo_compra, precio_venta, descripcion, cilindrada, tipo, stock) VALUES 
+('Honda', 'CB500F', 2023, 5500.00, 4125.00, 5500.00, 'Motocicleta deportiva de media cilindrada', '500cc', 'Deportiva', 3),
+('Yamaha', 'MT-07', 2023, 7200.00, 5400.00, 7200.00, 'Motocicleta naked de alto rendimiento', '700cc', 'Naked', 4),
+('Suzuki', 'GSX-R750', 2022, 8900.00, 6675.00, 8900.00, 'Motocicleta deportiva de alta gama', '750cc', 'Deportiva', 2),
+('Kawasaki', 'Ninja 400', 2023, 4200.00, 3150.00, 4200.00, 'Motocicleta deportiva para principiantes', '400cc', 'Deportiva', 5);
 

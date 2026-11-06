@@ -11,14 +11,40 @@
           <div class="card">
             <h2>Datos del Crédito</h2>
             <form @submit.prevent="calcularCredito">
+              <div v-if="!resultado" class="form-group">
+                <label class="form-label">Selecciona la motocicleta del stock</label>
+                <select v-model="motocicletaId" class="form-input" @change="onMotocicletaSeleccionada" required>
+                  <option value="">Selecciona una moto del stock</option>
+                  <option v-for="motocicleta in motocicletasDisponibles" :key="motocicleta.id" :value="motocicleta.id">
+                    {{ motocicleta.marca }} {{ motocicleta.modelo }} - Stock: {{ Number(motocicleta.stock || 0) }} - {{ formatPrice(Number(motocicleta.precio || 0)) }}
+                  </option>
+                </select>
+                <small v-if="!motocicletaId || !motocicletasDisponibles.length" class="form-hint error-text">
+                  Debe seleccionar una moto del stock para simular el crédito
+                </small>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Motocicleta seleccionada</label>
+                <div class="selected-bike-box">
+                  <div v-if="motocicletaSeleccionada">
+                    <strong>{{ motocicletaSeleccionada.marca }} {{ motocicletaSeleccionada.modelo }}</strong>
+                    <div class="selected-bike-meta">Stock: {{ Number(motocicletaSeleccionada.stock || 0) }}</div>
+                    <div class="selected-bike-meta">Precio: {{ formatPrice(Number(motocicletaSeleccionada.precio || 0)) }}</div>
+                  </div>
+                  <div v-else class="selected-bike-empty">Selecciona una moto para continuar</div>
+                </div>
+              </div>
+
               <div class="form-group">
                 <label class="form-label">Precio total de la moto (Bs.)</label>
                 <input 
                   type="number" 
-                  v-model="formData.monto" 
+                  :value="formData.monto"
                   class="form-input"
                   placeholder="Ej: 50000"
                   required
+                  readonly
                 >
               </div>
 
@@ -114,7 +140,7 @@
                 </div>
               </div>
 
-              <button type="submit" class="btn btn-primary" :disabled="calculando">
+              <button type="submit" class="btn btn-primary" :disabled="calculando || !motocicletaId || !motocicletasDisponibles.length">
                 {{ calculando ? 'Calculando...' : 'Calcular Crédito' }}
               </button>
             </form>
@@ -190,6 +216,7 @@
 
 <script>
 import { useAuthStore } from '../stores/auth'
+import { useMotocicletasStore } from '../stores/motocicletas'
 import axios from 'axios'
 
 const api = axios.create({
@@ -220,9 +247,14 @@ export default {
     }
   },
   mounted() {
+    this.cargarMotocicletasDisponibles()
     const routeId = this.$route.params.id || this.$route.query.motocicletaId
     if (routeId) {
       this.motocicletaId = Number(routeId)
+      const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(routeId))
+      if (motoSeleccionada) {
+        this.formData.monto = Number(motoSeleccionada.precio || 0)
+      }
     }
 
     if (this.$route.query.monto) {
@@ -231,15 +263,54 @@ export default {
   },
   setup() {
     const authStore = useAuthStore()
-    return { authStore }
+    const motocicletasStore = useMotocicletasStore()
+    return { authStore, motocicletasStore }
+  },
+  computed: {
+    motocicletasDisponibles() {
+      return this.motocicletasStore.motocicletas.filter((m) => Number(m.stock || 0) > 0)
+    },
+    motocicletaSeleccionada() {
+      if (!this.motocicletaId) return null
+      return this.motocicletasDisponibles.find((m) => Number(m.id) === Number(this.motocicletaId)) || null
+    }
   },
   methods: {
+    async cargarMotocicletasDisponibles() {
+      await this.motocicletasStore.fetchMotocicletas()
+      if (this.motocicletaId) {
+        const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(this.motocicletaId))
+        if (motoSeleccionada) {
+          this.formData.monto = Number(motoSeleccionada.precio || this.formData.monto || 0)
+        }
+      }
+    },
+    onMotocicletaSeleccionada() {
+      this.resultado = null
+      if (!this.motocicletaId) {
+        this.formData.monto = ''
+        return
+      }
+      const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(this.motocicletaId))
+      if (motoSeleccionada) {
+        this.formData.monto = Number(motoSeleccionada.precio || 0)
+      }
+    },
     async calcularCredito() {
+      if (!this.motocicletaId) {
+        alert('Debe seleccionar una moto del stock para simular el crédito')
+        return
+      }
+      const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(this.motocicletaId))
+      if (!motoSeleccionada || Number(motoSeleccionada.stock || 0) <= 0) {
+        alert('Debe seleccionar una moto del stock para simular el crédito')
+        return
+      }
       const monto = Number(this.formData.monto)
       const cuotaInicial = Number(this.formData.cuotaInicial || 0)
 
-      if (!monto || !this.formData.plazo) {
-        alert('Por favor, ingresa el monto y el plazo para calcular.')
+      if (!monto || monto <= 0 || !this.formData.plazo) {
+        alert('Debe seleccionar una moto del stock y completar el plazo para calcular.')
         return
       }
 
@@ -293,6 +364,12 @@ export default {
 
         const motocicletaId = Number(this.motocicletaId || this.$route.params.id || this.$route.query.motocicletaId)
         const monto = Number(this.formData.monto)
+        const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(motocicletaId))
+
+        if (!motoSeleccionada || Number(motoSeleccionada.stock || 0) <= 0) {
+          alert('Debe seleccionar una moto del stock para solicitar el crédito')
+          return
+        }
         const cuotaInicial = Number(this.formData.cuotaInicial || 0)
         const plazo = Number(this.formData.plazo)
         const ingresos = Number(this.formData.ingresosMensuales)
@@ -375,8 +452,17 @@ export default {
 
         this.$router.push('/catalogo')
       } catch (error) {
-        console.error('Error al enviar la solicitud:', error)
-        const msg = error.response?.data?.message || 'Ocurrió un error de conexión con el servidor.'
+        console.error('Error al enviar la solicitud:', {
+          status: error.response?.status,
+          data: error.response?.data,
+          request: error.config?.data,
+          message: error.message
+        })
+
+        const msg = error.response?.data?.message
+          || error.response?.data?.error
+          || 'Ocurrió un error de conexión con el servidor.'
+
         alert(msg)
       } finally {
         this.enviandoSolicitud = false
@@ -506,6 +592,33 @@ export default {
 .info-card p {
   color: rgba(255,255,255,0.8);
   line-height: 1.6;
+}
+
+.selected-bike-box {
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: rgba(239, 246, 255, 0.7);
+  border-radius: 0.85rem;
+  padding: 1rem;
+  min-height: 86px;
+  display: flex;
+  align-items: center;
+}
+
+.selected-bike-box strong {
+  display: block;
+  color: var(--primary-blue);
+  font-size: 1.02rem;
+}
+
+.selected-bike-meta {
+  color: var(--gray-600);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.selected-bike-empty {
+  color: var(--gray-500);
+  font-style: italic;
 }
 
 @media (max-width: 768px) {

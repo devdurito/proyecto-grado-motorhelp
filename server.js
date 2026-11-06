@@ -26,6 +26,133 @@ const dbConfig = {
   port: process.env.DB_PORT || 3306
 };
 
+const initializeDatabase = async () => {
+  const databaseName = process.env.DB_NAME || 'motorhelp';
+  const rootConnection = await mysql.createConnection({
+    host: dbConfig.host,
+    user: dbConfig.user,
+    password: dbConfig.password,
+    port: dbConfig.port
+  });
+
+  try {
+    await rootConnection.execute(`CREATE DATABASE IF NOT EXISTS \`${databaseName}\``);
+  } finally {
+    await rootConnection.end();
+  }
+
+  const connection = await mysql.createConnection(dbConfig);
+
+  try {
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS usuarios (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        nombre VARCHAR(255) NOT NULL,
+        telefono VARCHAR(20),
+        role ENUM('cliente', 'empleado', 'admin', 'asesor', 'contabilidad') DEFAULT 'cliente',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    await ensureUsuarioRoleEnum(connection);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS motocicletas (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        marca VARCHAR(100) NOT NULL,
+        modelo VARCHAR(100) NOT NULL,
+        anio INT NOT NULL,
+        precio DECIMAL(10,2) NOT NULL DEFAULT 0,
+        costo_compra DECIMAL(10,2) NOT NULL DEFAULT 0,
+        precio_venta DECIMAL(10,2) NOT NULL DEFAULT 0,
+        descripcion TEXT,
+        cilindrada VARCHAR(50),
+        tipo VARCHAR(50),
+        imagen VARCHAR(255),
+        stock INT NOT NULL DEFAULT 0,
+        activa BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    await ensureMotocicletaFinancialColumns(connection);
+    await ensureMotocicletaStockColumn(connection);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS solicitudes_credito (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        usuario_id INT NOT NULL,
+        motocicleta_id INT NOT NULL,
+        nombre_cliente VARCHAR(255),
+        ci_cliente VARCHAR(50),
+        telefono_cliente VARCHAR(30),
+        cuota_inicial DECIMAL(12,2) DEFAULT 0,
+        monto_solicitado DECIMAL(10,2) NOT NULL,
+        plazo INT NOT NULL,
+        tasa_interes DECIMAL(5,2) NOT NULL,
+        salario DECIMAL(10,2),
+        ingresos_mensuales DECIMAL(10,2),
+        direccion TEXT,
+        estado ENUM('pendiente', 'aprobada', 'rechazada') DEFAULT 'pendiente',
+        observaciones TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+        FOREIGN KEY (motocicleta_id) REFERENCES motocicletas(id)
+      )
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crm_config (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        meta_ventas DECIMAL(12,2) NOT NULL DEFAULT 500000,
+        fecha_limite DATE NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    const [crmConfigRows] = await connection.execute('SELECT id FROM crm_config LIMIT 1');
+    if (crmConfigRows.length === 0) {
+      await connection.execute(
+        'INSERT INTO crm_config (meta_ventas, fecha_limite) VALUES (?, ?)',
+        [500000, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)]
+      );
+    }
+
+    const [existingAdmin] = await connection.execute(
+      'SELECT id FROM usuarios WHERE email = ?',
+      ['admin@motorhelp.com']
+    );
+
+    if (existingAdmin.length === 0) {
+      const hashedPassword = await bcrypt.hash('password', 10);
+      await connection.execute(
+        'INSERT INTO usuarios (email, password, nombre, telefono, role) VALUES (?, ?, ?, ?, ?)',
+        ['admin@motorhelp.com', hashedPassword, 'Administrador', '1234567890', 'admin']
+      );
+    }
+
+    const [motocycleCount] = await connection.execute('SELECT COUNT(*) AS total FROM motocicletas');
+    if (Number(motocycleCount[0].total) === 0) {
+      await connection.execute(`
+        INSERT INTO motocicletas (marca, modelo, anio, precio, costo_compra, precio_venta, descripcion, cilindrada, tipo, stock) VALUES
+        ('Honda', 'CBR600RR', 2023, 850000, 637500, 850000, 'Deportiva de alta gama con tecnología avanzada', '600cc', 'Deportiva', 4),
+        ('Yamaha', 'MT-07', 2023, 650000, 487500, 650000, 'Naked bike con excelente relación precio-calidad', '700cc', 'Naked', 3),
+        ('Kawasaki', 'Ninja 400', 2023, 520000, 390000, 520000, 'Perfecta para principiantes y pilotos experimentados', '400cc', 'Deportiva', 2),
+        ('Suzuki', 'GSX-R750', 2023, 950000, 712500, 950000, 'Superdeportiva con potencia y agilidad', '750cc', 'Superdeportiva', 1),
+        ('Ducati', 'Monster 821', 2023, 1200000, 900000, 1200000, 'Naked bike italiana con carácter único', '821cc', 'Naked', 2),
+        ('BMW', 'S1000RR', 2023, 1500000, 1125000, 1500000, 'Superdeportiva alemana de alta tecnología', '1000cc', 'Superdeportiva', 1)
+      `);
+    }
+  } finally {
+    await connection.end();
+  }
+};
+
 // Configuración de multer para subir imágenes
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -38,9 +165,111 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const paymentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'public/uploads/');
+  },
+  filename: (req, file, cb) => {
+    const extension = path.extname(file.originalname || 'comprobante');
+    const name = `pago-${Date.now()}-${Math.round(Math.random() * 100000)}${extension}`;
+    cb(null, name);
+  }
+});
+
+const uploadPago = multer({
+  storage: paymentStorage,
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Solo se permiten imágenes o PDF como comprobante de pago'));
+    }
+    cb(null, true);
+  }
+});
+
 const getYearRange = () => {
   const currentYear = new Date().getFullYear();
   return { currentYear, maxYear: currentYear + 1 };
+};
+
+const normalizeRole = (role) => {
+  const normalized = String(role || '').trim().toLowerCase();
+  const allowedRoles = ['cliente', 'empleado', 'admin', 'asesor', 'contabilidad'];
+  return allowedRoles.includes(normalized) ? normalized : 'cliente';
+};
+
+const ensureUsuarioRoleEnum = async (connection) => {
+  const [columns] = await connection.execute("SHOW COLUMNS FROM usuarios LIKE 'role'");
+  if (!columns.length) return;
+
+  const type = String(columns[0].Type || '').toLowerCase();
+  const hasRequiredRoles = ['cliente', 'empleado', 'admin', 'asesor', 'contabilidad']
+    .every((role) => type.includes(role));
+
+  if (!hasRequiredRoles) {
+    await connection.execute(
+      "ALTER TABLE usuarios MODIFY role ENUM('cliente', 'empleado', 'admin', 'asesor', 'contabilidad') NOT NULL DEFAULT 'cliente'"
+    );
+  }
+};
+
+const ensureMotocicletaFinancialColumns = async (connection) => {
+  const [columns] = await connection.execute('SHOW COLUMNS FROM motocicletas');
+  const fieldNames = new Set(columns.map((column) => column.Field));
+
+  if (!fieldNames.has('costo_compra')) {
+    await connection.execute('ALTER TABLE motocicletas ADD COLUMN costo_compra DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER precio');
+  }
+
+  if (!fieldNames.has('precio_venta')) {
+    await connection.execute('ALTER TABLE motocicletas ADD COLUMN precio_venta DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER costo_compra');
+  }
+
+  await connection.execute('UPDATE motocicletas SET precio_venta = precio WHERE precio_venta IS NULL OR precio_venta = 0');
+  await connection.execute('UPDATE motocicletas SET costo_compra = precio WHERE costo_compra IS NULL OR costo_compra = 0');
+};
+
+const ensureMotocicletaStockColumn = async (connection) => {
+  const [columns] = await connection.execute('SHOW COLUMNS FROM motocicletas LIKE "stock"');
+  if (!columns.length) {
+    await connection.execute('ALTER TABLE motocicletas ADD COLUMN stock INT NOT NULL DEFAULT 0 AFTER imagen');
+  }
+};
+
+const descontarStockMotocicleta = async (connection, motocicletaId, cantidad = 1) => {
+  const cantidadDescontar = Number(cantidad || 1);
+  if (!Number.isFinite(cantidadDescontar) || cantidadDescontar <= 0) {
+    throw new Error('La cantidad a descontar debe ser mayor a cero');
+  }
+
+  const [rows] = await connection.execute(
+    'SELECT id, stock FROM motocicletas WHERE id = ? AND activa = 1 FOR UPDATE',
+    [motocicletaId]
+  );
+
+  if (rows.length === 0) {
+    throw new Error('La motocicleta no existe o no está disponible');
+  }
+
+  const stockActual = Number(rows[0].stock || 0);
+  if (stockActual < cantidadDescontar) {
+    throw new Error('No hay stock suficiente para esta motocicleta');
+  }
+
+  await connection.execute(
+    'UPDATE motocicletas SET stock = stock - ? WHERE id = ?',
+    [cantidadDescontar, motocicletaId]
+  );
+
+  return stockActual - cantidadDescontar;
+};
+
+const readFirstValue = (value) => {
+  if (Array.isArray(value)) {
+    const firstValid = value.find((item) => item !== undefined && item !== null && String(item).trim() !== '');
+    return firstValid !== undefined ? firstValid : value[0];
+  }
+  return value;
 };
 
 const resolveYearValue = (req) => {
@@ -48,7 +277,8 @@ const resolveYearValue = (req) => {
   const entries = Object.entries(body);
 
   const yearEntry = entries.find(([key, value]) => {
-    if (value === undefined || value === null || String(value).trim() === '') {
+    const normalizedValue = readFirstValue(value);
+    if (normalizedValue === undefined || normalizedValue === null || String(normalizedValue).trim() === '') {
       return false;
     }
 
@@ -57,10 +287,11 @@ const resolveYearValue = (req) => {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
 
-    return ['ano', 'anio', 'year'].includes(normalizedKey) || normalizedKey === 'año';
+    return ['ano', 'anio', 'year', 'año'].includes(normalizedKey);
   });
 
-  return yearEntry ? yearEntry[1] : undefined;
+  if (!yearEntry) return undefined;
+  return readFirstValue(yearEntry[1]);
 };
 
 const getMotocicletaYearColumn = async (connection) => {
@@ -80,7 +311,8 @@ const getSolicitudCreditoColumns = async (connection) => {
     nombreClienteColumn: fields.includes('nombre_cliente') ? 'nombre_cliente' : null,
     ciClienteColumn: fields.includes('ci_cliente') ? 'ci_cliente' : null,
     telefonoClienteColumn: fields.includes('telefono_cliente') ? 'telefono_cliente' : null,
-    cuotaInicialColumn: fields.includes('cuota_inicial') ? 'cuota_inicial' : null
+    cuotaInicialColumn: fields.includes('cuota_inicial') ? 'cuota_inicial' : null,
+    asesorColumn: fields.includes('asesor_id') ? 'asesor_id' : null
   };
 };
 
@@ -101,6 +333,26 @@ const ensureSolicitudCreditoClientColumns = async (connection) => {
   if (!fields.has('cuota_inicial')) {
     statements.push('ALTER TABLE solicitudes_credito ADD COLUMN cuota_inicial DECIMAL(12,2) NULL AFTER telefono_cliente');
   }
+  if (!fields.has('asesor_id')) {
+    statements.push('ALTER TABLE solicitudes_credito ADD COLUMN asesor_id INT NULL AFTER usuario_id');
+  }
+
+  for (const statement of statements) {
+    await connection.execute(statement);
+  }
+};
+
+const ensurePagosCreditoColumns = async (connection) => {
+  const [columns] = await connection.execute('SHOW COLUMNS FROM pagos_credito');
+  const fields = new Set(columns.map((column) => column.Field));
+
+  const statements = [];
+  if (!fields.has('comprobante_url')) {
+    statements.push('ALTER TABLE pagos_credito ADD COLUMN comprobante_url VARCHAR(500) NULL AFTER fecha_pago');
+  }
+  if (!fields.has('observaciones')) {
+    statements.push('ALTER TABLE pagos_credito ADD COLUMN observaciones TEXT NULL AFTER comprobante_url');
+  }
 
   for (const statement of statements) {
     await connection.execute(statement);
@@ -109,7 +361,8 @@ const ensureSolicitudCreditoClientColumns = async (connection) => {
 
 const validateYear = (yearValue) => {
   const { currentYear, maxYear } = getYearRange();
-  const yearNum = Number.parseInt(String(yearValue).trim(), 10);
+  const normalizedYearValue = readFirstValue(yearValue);
+  const yearNum = Number.parseInt(String(normalizedYearValue ?? '').trim(), 10);
 
   if (!Number.isInteger(yearNum) || yearNum <= 0) {
     return { valid: false, message: 'El año debe ser un número válido mayor a 0' };
@@ -131,6 +384,36 @@ const normalizeTasaInteres = (value) => {
     return 0.02;
   }
   return numericValue > 1 ? numericValue / 100 : numericValue;
+};
+
+const getDateRange = (range = 'mes') => {
+  const normalizedRange = String(range || 'mes').toLowerCase();
+  const now = new Date();
+
+  let start = new Date(now.getFullYear(), now.getMonth(), 1);
+  let end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  if (normalizedRange === 'trimestre') {
+    const quarter = Math.floor(now.getMonth() / 3);
+    start = new Date(now.getFullYear(), quarter * 3, 1);
+    end = new Date(now.getFullYear(), quarter * 3 + 3, 0, 23, 59, 59, 999);
+  }
+
+  if (normalizedRange === 'anio') {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+  }
+
+  const endPlusOne = new Date(end);
+  endPlusOne.setDate(endPlusOne.getDate() + 1);
+
+  return {
+    range: normalizedRange,
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+    endPlusOne: endPlusOne.toISOString().slice(0, 10),
+    label: normalizedRange === 'mes' ? 'Mes actual' : normalizedRange === 'trimestre' ? 'Trimestre' : 'Año'
+  };
 };
 
 const calcularCuotaMensual = (monto, plazo, tasaInteres) => {
@@ -166,8 +449,24 @@ const authenticateToken = (req, res, next) => {
 
 // Middleware para verificar rol de administrador
 const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'empleado') {
-    return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de administrador o empleado' });
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Acceso denegado. Se requiere rol administrador' });
+  }
+  next();
+};
+
+const requireStaff = (req, res, next) => {
+  const allowedRoles = ['admin', 'empleado', 'asesor', 'contabilidad'];
+  if (!allowedRoles.includes(req.user?.role)) {
+    return res.status(403).json({ message: 'Acceso denegado. Se requiere un rol autorizado' });
+  }
+  next();
+};
+
+const requireAdminOrAsesor = (req, res, next) => {
+  const allowedRoles = ['admin', 'asesor', 'contabilidad'];
+  if (!allowedRoles.includes(req.user?.role)) {
+    return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de administración o asesor' });
   }
   next();
 };
@@ -219,6 +518,11 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, nombre, telefono } = req.body;
+    const requestedRole = normalizeRole(req.body.role);
+
+    if (requestedRole !== 'cliente') {
+      return res.status(400).json({ message: 'Solo se permite crear cuentas de tipo cliente desde el registro público' });
+    }
 
     if (!email || !password || !nombre) {
       return res.status(400).json({ message: 'Email, contraseña y nombre son requeridos' });
@@ -228,6 +532,7 @@ app.post('/api/auth/register', async (req, res) => {
     const [existingUser] = await connection.execute('SELECT id FROM usuarios WHERE email = ?', [email]);
 
     if (existingUser.length > 0) {
+      await connection.end();
       return res.status(400).json({ message: 'El usuario ya existe' });
     }
 
@@ -259,8 +564,245 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+app.get('/api/crm/dashboard', authenticateToken, requireStaff, async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig);
+    await ensureSolicitudCreditoClientColumns(connection);
+
+    const isAdmin = req.user.role === 'admin';
+    const isPersonalView = ['empleado', 'asesor', 'contabilidad'].includes(req.user.role);
+    const range = getDateRange(req.query.range || req.query.period || 'mes');
+
+    const whereClauses = [];
+    const queryParams = [];
+
+    if (!isAdmin) {
+      whereClauses.push('(sc.asesor_id = ? OR sc.usuario_id = ?)');
+      queryParams.push(req.user.id, req.user.id);
+    }
+
+    whereClauses.push('sc.created_at >= ? AND sc.created_at < ?');
+    queryParams.push(range.start, range.endPlusOne);
+
+    const whereClause = whereClauses.length ? ` WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const [rows] = await connection.execute(`
+      SELECT sc.*,
+             u.nombre AS usuario_nombre,
+             u.email,
+             u.telefono,
+             m.marca,
+             m.modelo,
+             COALESCE(sc.nombre_cliente, u.nombre, '') AS nombre_cliente,
+             COALESCE(sc.monto_solicitado, 0) AS monto
+      FROM solicitudes_credito sc
+      LEFT JOIN usuarios u ON sc.usuario_id = u.id
+      LEFT JOIN motocicletas m ON sc.motocicleta_id = m.id
+      ${whereClause}
+      ORDER BY sc.created_at DESC
+    `, queryParams);
+
+    const [metaRows] = await connection.execute(
+      'SELECT meta_ventas, fecha_limite FROM crm_config ORDER BY id DESC LIMIT 1'
+    );
+
+    const metaVentas = Number(metaRows[0]?.meta_ventas || 500000);
+    const fechaLimite = metaRows[0]?.fecha_limite || null;
+
+    const totalProspectos = rows.length;
+    const pendientes = rows.filter((item) => String(item.estado) === 'pendiente').length;
+    const aprobadas = rows.filter((item) => String(item.estado) === 'aprobada').length;
+    const rechazadas = rows.filter((item) => String(item.estado) === 'rechazada').length;
+    const ventasTotales = rows
+      .filter((item) => String(item.estado) === 'aprobada')
+      .reduce((sum, item) => sum + Number(item.monto_solicitado || item.monto || 0), 0);
+
+    const progreso = metaVentas > 0 ? Math.min(Math.round((ventasTotales / metaVentas) * 100), 100) : 0;
+
+    let personal = null;
+    if (isPersonalView) {
+      personal = {
+        ventasConcretadas: aprobadas,
+        prospectosAsignados: totalProspectos,
+        creditosEnSeguimiento: pendientes,
+        metaPersonal: metaVentas,
+        progresoPersonal: progreso,
+        montoVentas: ventasTotales
+      };
+    }
+
+    let rankingAsesores = [];
+    let tasaConversion = {
+      porcentaje: 0,
+      total_prospectos: totalProspectos,
+      total_convertidos: aprobadas
+    };
+    let carteraMorosidad = {
+      monto_vencido: 0,
+      monto_por_vencer: 0,
+      total: 0
+    };
+
+    if (isAdmin) {
+      const [rankingRows] = await connection.execute(`
+        SELECT u.id,
+               u.nombre,
+               COUNT(sc.id) AS prospectos_asignados,
+               SUM(CASE WHEN sc.estado = 'aprobada' THEN 1 ELSE 0 END) AS ventas_concretadas,
+               COALESCE(SUM(CASE WHEN sc.estado = 'aprobada' THEN sc.monto_solicitado ELSE 0 END), 0) AS ventas_monto,
+               COALESCE(SUM(CASE WHEN sc.estado = 'pendiente' THEN 1 ELSE 0 END), 0) AS creditos_segimiento
+        FROM usuarios u
+        LEFT JOIN solicitudes_credito sc ON sc.asesor_id = u.id
+        WHERE u.role = 'asesor'
+          AND sc.created_at >= ? AND sc.created_at < ?
+        GROUP BY u.id, u.nombre
+        ORDER BY ventas_monto DESC, ventas_concretadas DESC, prospectos_asignados DESC
+        LIMIT 10
+      `, [range.start, range.endPlusOne]);
+
+      rankingAsesores = rankingRows.map((item) => ({
+        id: item.id,
+        nombre: item.nombre,
+        prospectos_asignados: Number(item.prospectos_asignados || 0),
+        ventas_concretadas: Number(item.ventas_concretadas || 0),
+        ventas_monto: Number(item.ventas_monto || 0),
+        creditos_segimiento: Number(item.creditos_segimiento || 0)
+      }));
+
+      const [conversionRows] = await connection.execute(`
+        SELECT COUNT(*) AS total_prospectos,
+               SUM(CASE WHEN estado = 'aprobada' THEN 1 ELSE 0 END) AS total_convertidos
+        FROM solicitudes_credito
+        WHERE created_at >= ? AND created_at < ?
+      `, [range.start, range.endPlusOne]);
+
+      const conversionTotal = Number(conversionRows[0]?.total_prospectos || 0);
+      const conversionAprobadas = Number(conversionRows[0]?.total_convertidos || 0);
+      tasaConversion = {
+        porcentaje: conversionTotal > 0 ? Number(((conversionAprobadas / conversionTotal) * 100).toFixed(2)) : 0,
+        total_prospectos: conversionTotal,
+        total_convertidos: conversionAprobadas
+      };
+
+      const [carteraRows] = await connection.execute(`
+        SELECT
+          COALESCE(SUM(CASE WHEN pc.fecha_vencimiento < CURDATE() THEN pc.monto ELSE 0 END), 0) AS monto_vencido,
+          COALESCE(SUM(CASE WHEN pc.fecha_vencimiento >= CURDATE() AND pc.fecha_vencimiento <= ? THEN pc.monto ELSE 0 END), 0) AS monto_por_vencer
+        FROM pagos_credito pc
+        INNER JOIN solicitudes_credito sc ON sc.id = pc.solicitud_id
+        WHERE pc.estado = 'pendiente'
+          AND sc.estado = 'aprobada'
+          AND pc.fecha_vencimiento BETWEEN ? AND ?
+      `, [range.end, range.start, range.end]);
+
+      const montoVencido = Number(carteraRows[0]?.monto_vencido || 0);
+      const montoPorVencer = Number(carteraRows[0]?.monto_por_vencer || 0);
+      carteraMorosidad = {
+        monto_vencido: montoVencido,
+        monto_por_vencer: montoPorVencer,
+        total: montoVencido + montoPorVencer
+      };
+    }
+
+    await connection.end();
+
+    res.json({
+      rol: req.user.role,
+      range: range.range,
+      rango_etiqueta: range.label,
+      totalProspectos,
+      pendientes,
+      aprobadas,
+      rechazadas,
+      ventasTotales,
+      progreso,
+      solicitudes: rows,
+      meta_ventas: metaVentas,
+      fecha_limite: fechaLimite,
+      meta: metaVentas,
+      personal,
+      ranking_asesores: rankingAsesores,
+      tasa_conversion: tasaConversion,
+      cartera_morosidad: carteraMorosidad,
+      filtro_temporal: {
+        value: range.range,
+        label: range.label
+      }
+    });
+  } catch (error) {
+    console.error('Error generando dashboard CRM:', error);
+    if (connection) {
+      await connection.end().catch(() => {});
+    }
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.get('/api/crm/meta', authenticateToken, requireStaff, async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig);
+    const [rows] = await connection.execute(
+      'SELECT meta_ventas, fecha_limite FROM crm_config ORDER BY id DESC LIMIT 1'
+    );
+    const meta = rows[0] || { meta_ventas: 500000, fecha_limite: null };
+    await connection.end();
+    res.json({
+      meta_ventas: Number(meta.meta_ventas || 500000),
+      fecha_limite: meta.fecha_limite || null
+    });
+  } catch (error) {
+    console.error('Error obteniendo meta CRM:', error);
+    if (connection) {
+      await connection.end().catch(() => {});
+    }
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.put('/api/crm/meta', authenticateToken, requireAdmin, async (req, res) => {
+  let connection;
+  try {
+    const { meta_ventas, fecha_limite } = req.body || {};
+    const metaValue = Number(meta_ventas || 0);
+
+    if (!Number.isFinite(metaValue) || metaValue <= 0) {
+      return res.status(400).json({ message: 'La meta de ventas debe ser un valor mayor a 0' });
+    }
+
+    connection = await mysql.createConnection(dbConfig);
+    const fechaLimiteValue = fecha_limite ? new Date(fecha_limite).toISOString().slice(0, 10) : null;
+
+    const [existingRows] = await connection.execute('SELECT id FROM crm_config LIMIT 1');
+    if (existingRows.length > 0) {
+      await connection.execute(
+        'UPDATE crm_config SET meta_ventas = ?, fecha_limite = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [metaValue, fechaLimiteValue, existingRows[0].id]
+      );
+    } else {
+      await connection.execute(
+        'INSERT INTO crm_config (meta_ventas, fecha_limite) VALUES (?, ?)',
+        [metaValue, fechaLimiteValue]
+      );
+    }
+
+    await connection.end();
+    res.json({
+      meta_ventas: metaValue,
+      fecha_limite: fechaLimiteValue
+    });
+  } catch (error) {
+    console.error('Error actualizando meta CRM:', error);
+    if (connection) {
+      await connection.end().catch(() => {});
+    }
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
 // Rutas de administración de usuarios (solo admin)
-app.get('/api/admin/usuarios', authenticateToken, requireAdmin, async (req, res) => {
+const listarUsuariosAdmin = async (req, res) => {
   try {
     const connection = await mysql.createConnection(dbConfig);
     const [usuarios] = await connection.execute(
@@ -272,11 +814,15 @@ app.get('/api/admin/usuarios', authenticateToken, requireAdmin, async (req, res)
     console.error('Error obteniendo usuarios:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
-});
+};
 
-app.post('/api/admin/usuarios', authenticateToken, requireAdmin, async (req, res) => {
+const crearUsuarioAdmin = async (req, res) => {
   try {
     const { email, password, nombre, telefono, role = 'cliente' } = req.body;
+    const allowedRoles = ['cliente', 'empleado', 'admin', 'asesor', 'contabilidad'];
+    const normalizedRole = allowedRoles.includes(String(role || '').trim().toLowerCase())
+      ? String(role).trim().toLowerCase()
+      : 'cliente';
 
     if (!email || !password || !nombre) {
       return res.status(400).json({ message: 'Email, contraseña y nombre son requeridos' });
@@ -284,23 +830,20 @@ app.post('/api/admin/usuarios', authenticateToken, requireAdmin, async (req, res
 
     const connection = await mysql.createConnection(dbConfig);
 
-    // Verificar si el usuario ya existe
     const [existingUser] = await connection.execute(
       'SELECT id FROM usuarios WHERE email = ?',
       [email]
     );
 
     if (existingUser.length > 0) {
+      await connection.end();
       return res.status(400).json({ message: 'El usuario ya existe' });
     }
 
-    // Hash de la contraseña
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Crear usuario
     const [result] = await connection.execute(
       'INSERT INTO usuarios (email, password, nombre, telefono, role) VALUES (?, ?, ?, ?, ?)',
-      [email, hashedPassword, nombre, telefono, role]
+      [email, hashedPassword, nombre, telefono, normalizedRole]
     );
 
     res.json({
@@ -308,21 +851,99 @@ app.post('/api/admin/usuarios', authenticateToken, requireAdmin, async (req, res
       email,
       nombre,
       telefono,
-      role,
+      role: normalizedRole,
       message: 'Usuario creado exitosamente'
     });
   } catch (error) {
     console.error('Error creando usuario:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
-});
+};
+
+const actualizarUsuarioAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email, nombre, telefono, role } = req.body;
+    const userId = parseInt(id);
+
+    if (!userId) {
+      return res.status(400).json({ message: 'ID de usuario inválido' });
+    }
+
+    const allowedRoles = ['cliente', 'empleado', 'admin', 'asesor', 'contabilidad'];
+    const normalizedRole = role ? normalizeRole(role) : null;
+
+    if (role && !allowedRoles.includes(normalizedRole)) {
+      return res.status(400).json({ message: 'Rol inválido' });
+    }
+
+    const connection = await mysql.createConnection(dbConfig);
+    const [existingUser] = await connection.execute('SELECT id, email FROM usuarios WHERE id = ?', [userId]);
+
+    if (existingUser.length === 0) {
+      await connection.end();
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    const updateFields = [];
+    const updateValues = [];
+
+    if (email) {
+      const [duplicateEmail] = await connection.execute('SELECT id FROM usuarios WHERE email = ? AND id != ?', [email, userId]);
+      if (duplicateEmail.length > 0) {
+        await connection.end();
+        return res.status(400).json({ message: 'Ya existe un usuario con ese email' });
+      }
+      updateFields.push('email = ?');
+      updateValues.push(email);
+    }
+
+    if (nombre) {
+      updateFields.push('nombre = ?');
+      updateValues.push(nombre);
+    }
+
+    if (telefono !== undefined) {
+      updateFields.push('telefono = ?');
+      updateValues.push(telefono || null);
+    }
+
+    if (normalizedRole) {
+      updateFields.push('role = ?');
+      updateValues.push(normalizedRole);
+    }
+
+    if (updateFields.length === 0) {
+      await connection.end();
+      return res.status(400).json({ message: 'No se enviaron cambios para actualizar' });
+    }
+
+    updateValues.push(userId);
+    await connection.execute(
+      `UPDATE usuarios SET ${updateFields.join(', ')} WHERE id = ?`,
+      updateValues
+    );
+
+    await connection.end();
+    res.json({ message: 'Usuario actualizado exitosamente' });
+  } catch (error) {
+    console.error('Error actualizando usuario:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+};
+
+app.get('/api/admin/usuarios', authenticateToken, requireAdmin, listarUsuariosAdmin);
+app.get('/api/usuarios', authenticateToken, requireAdmin, listarUsuariosAdmin);
+app.post('/api/admin/usuarios', authenticateToken, requireAdmin, crearUsuarioAdmin);
+app.post('/api/usuarios', authenticateToken, requireAdmin, crearUsuarioAdmin);
+app.put('/api/admin/usuarios/:id', authenticateToken, requireAdmin, actualizarUsuarioAdmin);
+app.put('/api/usuarios/:id', authenticateToken, requireAdmin, actualizarUsuarioAdmin);
 
 app.delete('/api/admin/usuarios/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = parseInt(id);
 
-    // Evitar que el admin se elimine a sí mismo
     if (userId === req.user.id) {
       return res.status(400).json({ message: 'No puedes eliminar tu propia cuenta' });
     }
@@ -340,6 +961,25 @@ app.delete('/api/admin/usuarios/:id', authenticateToken, requireAdmin, async (re
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 });
+app.delete('/api/usuarios/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id);
+
+    if (userId === req.user.id) {
+      return res.status(400).json({ message: 'No puedes eliminar tu propia cuenta' });
+    }
+
+    const connection = await mysql.createConnection(dbConfig);
+    await connection.execute('DELETE FROM usuarios WHERE id = ?', [userId]);
+    await connection.end();
+
+    res.json({ message: 'Usuario eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error eliminando usuario:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
 
 // Rutas de motocicletas
 app.get('/api/motocicletas', async (req, res) => {
@@ -348,17 +988,77 @@ app.get('/api/motocicletas', async (req, res) => {
     connection = await mysql.createConnection(dbConfig);
     const yearColumn = await getMotocicletaYearColumn(connection);
     const [motocicletas] = await connection.execute(
-      `SELECT id, marca, modelo, ${yearColumn} AS año, precio, descripcion, cilindrada, tipo, imagen, activa, created_at, updated_at
+      `SELECT id, marca, modelo, ${yearColumn} AS año, precio, costo_compra, precio_venta, descripcion, cilindrada, tipo, imagen, stock, activa, created_at, updated_at
        FROM motocicletas WHERE activa = 1 ORDER BY created_at DESC`
     );
     await connection.end();
-    res.json(motocicletas);
+    res.json(motocicletas.map((motocicleta) => ({
+      ...motocicleta,
+      precio_venta: Number(motocicleta.precio_venta ?? motocicleta.precio ?? 0),
+      costo_compra: Number(motocicleta.costo_compra ?? motocicleta.precio ?? 0),
+      precio: Number(motocicleta.precio_venta ?? motocicleta.precio ?? 0)
+    })));
   } catch (error) {
     console.error('Error obteniendo motocicletas:', error);
     if (connection) {
       await connection.end().catch(() => { });
     }
     res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.get('/api/inventario/financiero', authenticateToken, requireAdmin, async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig);
+    const [summary] = await connection.execute(`
+      SELECT
+        COALESCE(SUM(stock * COALESCE(costo_compra, precio, 0)), 0) AS capital_invertido_total,
+        COALESCE(SUM(stock * COALESCE(precio_venta, precio, 0)), 0) AS valor_venta_total,
+        COALESCE(SUM(stock * (COALESCE(precio_venta, precio, 0) - COALESCE(costo_compra, precio, 0))), 0) AS ganancia_potencial_total,
+        COUNT(*) AS total_motos
+      FROM motocicletas
+      WHERE activa = 1
+    `);
+
+    const row = summary[0] || {};
+    const capitalInvertido = Number(row.capital_invertido_total || 0);
+    const valorVenta = Number(row.valor_venta_total || 0);
+    const gananciaPotencial = Number(row.ganancia_potencial_total || 0);
+
+    res.json({
+      capital_invertido_total: capitalInvertido,
+      valor_venta_total: valorVenta,
+      ganancia_potencial_total: gananciaPotencial,
+      total_motos: Number(row.total_motos || 0),
+      margen_porcentaje_promedio: capitalInvertido > 0 ? ((gananciaPotencial / capitalInvertido) * 100) : 0
+    });
+  } catch (error) {
+    console.error('Error obteniendo resumen financiero:', error);
+    if (connection) {
+      await connection.end().catch(() => { });
+    }
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.post('/api/motocicletas/:id/vender', authenticateToken, async (req, res) => {
+  let connection;
+  try {
+    connection = await mysql.createConnection(dbConfig);
+    await connection.beginTransaction();
+    const motocicletaId = Number(req.params.id);
+    const nuevoStock = await descontarStockMotocicleta(connection, motocicletaId, 1);
+    await connection.commit();
+    await connection.end();
+    res.json({ message: 'Venta registrada correctamente', stock: nuevoStock });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      await connection.end().catch(() => {});
+    }
+    console.error('Error registrando venta directa:', error);
+    res.status(400).json({ message: error.message || 'No se pudo registrar la venta' });
   }
 });
 
@@ -369,7 +1069,7 @@ app.get('/api/motocicletas/:id', async (req, res) => {
     connection = await mysql.createConnection(dbConfig);
     const yearColumn = await getMotocicletaYearColumn(connection);
     const [motocicletas] = await connection.execute(
-      `SELECT id, marca, modelo, ${yearColumn} AS año, precio, descripcion, cilindrada, tipo, imagen, activa, created_at, updated_at
+      `SELECT id, marca, modelo, ${yearColumn} AS año, precio, costo_compra, precio_venta, descripcion, cilindrada, tipo, imagen, stock, activa, created_at, updated_at
        FROM motocicletas WHERE id = ? AND activa = 1`,
       [id]
     );
@@ -380,7 +1080,13 @@ app.get('/api/motocicletas/:id', async (req, res) => {
       return res.status(404).json({ message: 'Motocicleta no encontrada' });
     }
 
-    res.json(motocicletas[0]);
+    const motocicleta = motocicletas[0];
+    res.json({
+      ...motocicleta,
+      precio_venta: Number(motocicleta.precio_venta ?? motocicleta.precio ?? 0),
+      costo_compra: Number(motocicleta.costo_compra ?? motocicleta.precio ?? 0),
+      precio: Number(motocicleta.precio_venta ?? motocicleta.precio ?? 0)
+    });
   } catch (error) {
     console.error('Error obteniendo motocicleta:', error);
     if (connection) {
@@ -399,24 +1105,29 @@ app.post('/api/motocicletas', authenticateToken, requireAdmin, upload.single('im
     console.log('req.body completo:', req.body);
     console.log('Keys en req.body:', Object.keys(req.body));
 
-    const { marca, modelo, año, precio, descripcion, cilindrada, tipo } = req.body;
-    const añoValue = resolveYearValue(req) ?? año;
+    const { marca, modelo, año, anio, precio, precio_venta, precioVenta, costo_compra, costoCompra, descripcion, cilindrada, tipo, stock } = req.body;
+    const añoValue = resolveYearValue(req) ?? año ?? anio;
+    const stockFinal = Number(readFirstValue(stock) ?? 0) || 0;
+    const costoCompraValue = readFirstValue(costo_compra ?? costoCompra) ?? 0;
+    const precioVentaValue = readFirstValue(precio_venta ?? precioVenta ?? precio) ?? precio ?? 0;
 
     console.log('Datos recibidos:', {
       marca: marca,
       modelo: modelo,
-      año: año,
-      añoValue: añoValue,
-      precio: precio,
+      año: añoValue,
+      costo_compra: costoCompraValue,
+      precio_venta: precioVentaValue,
       descripcion: descripcion,
       cilindrada: cilindrada,
-      tipo: tipo
+      tipo: tipo,
+      stock: stockFinal
     });
 
     const marcaTrim = marca?.toString().trim();
     const modeloTrim = modelo?.toString().trim();
-    const añoStr = añoValue?.toString().trim();
-    const precioStr = precio?.toString().trim();
+    const añoStr = String(readFirstValue(añoValue) ?? '').trim();
+    const costoCompraStr = String(costoCompraValue ?? '').trim();
+    const precioVentaStr = String(precioVentaValue ?? '').trim();
 
     if (!marcaTrim || marcaTrim === '') {
       return res.status(400).json({ message: 'La marca es requerida' });
@@ -427,14 +1138,25 @@ app.post('/api/motocicletas', authenticateToken, requireAdmin, upload.single('im
     if (!añoStr || añoStr === '') {
       return res.status(400).json({ message: 'El año es requerido' });
     }
-    if (!precioStr || precioStr === '') {
-      return res.status(400).json({ message: 'El precio es requerido' });
+    if (!costoCompraStr || costoCompraStr === '') {
+      return res.status(400).json({ message: 'El costo de compra es requerido' });
+    }
+    if (!precioVentaStr || precioVentaStr === '') {
+      return res.status(400).json({ message: 'El precio de venta es requerido' });
     }
 
-    const precioNum = Number.parseFloat(precioStr);
-    if (Number.isNaN(precioNum) || precioNum <= 0) {
-      return res.status(400).json({ message: 'El precio debe ser un número válido mayor a 0' });
+    const costoCompraNum = Number.parseFloat(costoCompraStr);
+    if (Number.isNaN(costoCompraNum) || costoCompraNum <= 0) {
+      return res.status(400).json({ message: 'El costo de compra debe ser un número válido mayor a 0' });
     }
+
+    const precioVentaNum = Number.parseFloat(precioVentaStr);
+    if (Number.isNaN(precioVentaNum) || precioVentaNum <= 0) {
+      return res.status(400).json({ message: 'El precio de venta debe ser un número válido mayor a 0' });
+    }
+
+    const margenDinero = precioVentaNum - costoCompraNum;
+    const margenPorcentaje = costoCompraNum > 0 ? ((margenDinero / costoCompraNum) * 100) : 0;
 
     const yearValidation = validateYear(añoStr);
     if (!yearValidation.valid) {
@@ -447,13 +1169,18 @@ app.post('/api/motocicletas', authenticateToken, requireAdmin, upload.single('im
     connection = await mysql.createConnection(dbConfig);
     const yearColumn = await getMotocicletaYearColumn(connection);
     const [result] = await connection.execute(
-      `INSERT INTO motocicletas (marca, modelo, ${yearColumn}, precio, descripcion, cilindrada, tipo, imagen, activa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [marcaTrim, modeloTrim, añoNum, precioNum, descripcion?.toString().trim() || null, cilindrada?.toString().trim() || null, tipo?.toString().trim() || null, imagen]
+      `INSERT INTO motocicletas (marca, modelo, ${yearColumn}, precio, costo_compra, precio_venta, descripcion, cilindrada, tipo, imagen, stock, activa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [marcaTrim, modeloTrim, añoNum, precioVentaNum, costoCompraNum, precioVentaNum, descripcion?.toString().trim() || null, cilindrada?.toString().trim() || null, tipo?.toString().trim() || null, imagen, Number.isFinite(stockFinal) && stockFinal >= 0 ? stockFinal : 0]
     );
 
     await connection.end();
 
-    res.json({ id: result.insertId, message: 'Motocicleta agregada exitosamente' });
+    res.json({
+      id: result.insertId,
+      margen_dinero: margenDinero,
+      margen_porcentaje: margenPorcentaje,
+      message: 'Motocicleta agregada exitosamente'
+    });
   } catch (error) {
     console.error('Error creando motocicleta:', error);
     console.error('Request body:', req.body);
@@ -467,67 +1194,111 @@ app.post('/api/motocicletas', authenticateToken, requireAdmin, upload.single('im
   }
 });
 
-app.put('/api/motocicletas/:id', authenticateToken, requireAdmin, upload.single('imagen'), async (req, res) => {
+app.put('/api/motocicletas/:id', authenticateToken, upload.single('imagen'), async (req, res) => {
   let connection;
   try {
     const { id } = req.params;
+    const isEmployee = req.user?.role === 'empleado';
 
-    // Debug: mostrar todo el body recibido
-    console.log('req.body completo (UPDATE):', req.body);
-    console.log('Keys en req.body (UPDATE):', Object.keys(req.body));
+    connection = await mysql.createConnection(dbConfig);
+    const [existingRows] = await connection.execute('SELECT * FROM motocicletas WHERE id = ?', [id]);
 
-    const { marca, modelo, año, precio, descripcion, cilindrada, tipo } = req.body;
-    const añoValue = resolveYearValue(req) ?? año;
+    if (existingRows.length === 0) {
+      await connection.end();
+      return res.status(404).json({ message: 'Motocicleta no encontrada' });
+    }
 
-    console.log('Datos recibidos (UPDATE):', {
-      marca: marca,
-      modelo: modelo,
-      año: año,
-      añoValue: añoValue,
-      precio: precio,
-      descripcion: descripcion,
-      cilindrada: cilindrada,
-      tipo: tipo
-    });
+    const existing = existingRows[0];
+    let bodyToProcess = { ...req.body };
 
-    const marcaTrim = marca?.toString().trim();
-    const modeloTrim = modelo?.toString().trim();
-    const añoStr = añoValue?.toString().trim();
-    const precioStr = precio?.toString().trim();
+    if (isEmployee) {
+      const protectedFields = ['marca', 'modelo', 'anio', 'año', 'precio', 'precio_venta', 'precioVenta', 'costo_compra', 'costoCompra', 'stock', 'cilindrada', 'tipo', 'nombre'];
+      protectedFields.forEach((field) => delete bodyToProcess[field]);
+      bodyToProcess.marca = existing.marca;
+      bodyToProcess.modelo = existing.modelo;
+      bodyToProcess.precio = existing.precio_venta ?? existing.precio ?? 0;
+      bodyToProcess.precio_venta = existing.precio_venta ?? existing.precio ?? 0;
+      bodyToProcess.costo_compra = existing.costo_compra ?? existing.precio ?? 0;
+      bodyToProcess.stock = existing.stock;
+      bodyToProcess.anio = existing.anio ?? existing.año;
+      bodyToProcess.año = existing.anio ?? existing.año;
+      bodyToProcess.cilindrada = existing.cilindrada;
+      bodyToProcess.tipo = existing.tipo;
+      bodyToProcess.descripcion = bodyToProcess.descripcion ?? existing.descripcion;
+    }
 
-    if (!marcaTrim || marcaTrim === '') {
+    const { marca, modelo, año, anio, precio, precio_venta, precioVenta, costo_compra, costoCompra, descripcion, cilindrada, tipo, stock } = bodyToProcess;
+    const añoValue = resolveYearValue({ body: bodyToProcess }) ?? año ?? anio;
+    const costoCompraValue = readFirstValue(costo_compra ?? costoCompra ?? existing.costo_compra ?? existing.precio ?? 0) ?? existing.costo_compra ?? existing.precio ?? 0;
+    const precioVentaValue = readFirstValue(precio_venta ?? precioVenta ?? precio ?? existing.precio_venta ?? existing.precio ?? 0) ?? existing.precio_venta ?? existing.precio ?? 0;
+
+    const marcaTrim = String(marca ?? existing.marca ?? '').trim();
+    const modeloTrim = String(modelo ?? existing.modelo ?? '').trim();
+    const costoCompraStr = String(costoCompraValue ?? '').trim();
+    const precioVentaStr = String(precioVentaValue ?? '').trim();
+    const añoStr = String(añoValue ?? existing.anio ?? existing.año ?? '').trim();
+
+    if (!marcaTrim) {
+      await connection.end();
       return res.status(400).json({ message: 'La marca es requerida' });
     }
-    if (!modeloTrim || modeloTrim === '') {
+    if (!modeloTrim) {
+      await connection.end();
       return res.status(400).json({ message: 'El modelo es requerido' });
     }
-    if (!añoStr || añoStr === '') {
+    if (!añoStr) {
+      await connection.end();
       return res.status(400).json({ message: 'El año es requerido' });
     }
-    if (!precioStr || precioStr === '') {
-      return res.status(400).json({ message: 'El precio es requerido' });
+    if (!costoCompraStr) {
+      await connection.end();
+      return res.status(400).json({ message: 'El costo de compra es requerido' });
+    }
+    if (!precioVentaStr) {
+      await connection.end();
+      return res.status(400).json({ message: 'El precio de venta es requerido' });
     }
 
-    const precioNum = Number.parseFloat(precioStr);
-    if (Number.isNaN(precioNum) || precioNum <= 0) {
-      return res.status(400).json({ message: 'El precio debe ser un número válido mayor a 0' });
+    const costoCompraNum = Number.parseFloat(costoCompraStr);
+    if (Number.isNaN(costoCompraNum) || costoCompraNum <= 0) {
+      await connection.end();
+      return res.status(400).json({ message: 'El costo de compra debe ser un número válido mayor a 0' });
+    }
+
+    const precioVentaNum = Number.parseFloat(precioVentaStr);
+    if (Number.isNaN(precioVentaNum) || precioVentaNum <= 0) {
+      await connection.end();
+      return res.status(400).json({ message: 'El precio de venta debe ser un número válido mayor a 0' });
     }
 
     const yearValidation = validateYear(añoStr);
     if (!yearValidation.valid) {
+      await connection.end();
       return res.status(400).json({ message: yearValidation.message });
     }
 
     const añoNum = yearValidation.year;
     const imagen = req.file ? `/uploads/${req.file.filename}` : undefined;
+    const stockValue = Number(readFirstValue(stock ?? existing.stock ?? 0) ?? existing.stock ?? 0);
+    const margenDinero = precioVentaNum - costoCompraNum;
+    const margenPorcentaje = costoCompraNum > 0 ? ((margenDinero / costoCompraNum) * 100) : 0;
 
-    connection = await mysql.createConnection(dbConfig);
     const yearColumn = await getMotocicletaYearColumn(connection);
+    let query = `UPDATE motocicletas SET marca = ?, modelo = ?, ${yearColumn} = ?, precio = ?, costo_compra = ?, precio_venta = ?, descripcion = ?, cilindrada = ?, tipo = ?, stock = ?`;
+    let params = [
+      marcaTrim,
+      modeloTrim,
+      añoNum,
+      precioVentaNum,
+      costoCompraNum,
+      precioVentaNum,
+      String(descripcion ?? existing.descripcion ?? '').trim() || null,
+      String(cilindrada ?? existing.cilindrada ?? '').trim() || null,
+      String(tipo ?? existing.tipo ?? '').trim() || null,
+      Number.isFinite(stockValue) && stockValue >= 0 ? stockValue : 0
+    ];
 
-    let query = `UPDATE motocicletas SET marca = ?, modelo = ?, ${yearColumn} = ?, precio = ?, descripcion = ?, cilindrada = ?, tipo = ?`;
-    let params = [marcaTrim, modeloTrim, añoNum, precioNum, descripcion?.toString().trim() || null, cilindrada?.toString().trim() || null, tipo?.toString().trim() || null];
-
-    if (imagen) {
+    if (imagen && req.user?.role === 'admin') {
       query += ', imagen = ?';
       params.push(imagen);
     }
@@ -538,7 +1309,11 @@ app.put('/api/motocicletas/:id', authenticateToken, requireAdmin, upload.single(
     await connection.execute(query, params);
     await connection.end();
 
-    res.json({ message: 'Motocicleta actualizada exitosamente' });
+    res.json({
+      message: 'Motocicleta actualizada exitosamente',
+      margen_dinero: margenDinero,
+      margen_porcentaje: margenPorcentaje
+    });
   } catch (error) {
     console.error('Error actualizando motocicleta:', error);
     console.error('Request body:', req.body);
@@ -643,6 +1418,7 @@ app.post('/api/solicitar-credito', authenticateToken, async (req, res) => {
       telefono_cliente
     } = req.body;
     const usuario_id = req.user?.id;
+    const asesor_id = req.user.role === 'asesor' ? req.user.id : null;
 
     if (!usuario_id) {
       return res.status(401).json({ message: 'Usuario no autenticado' });
@@ -702,7 +1478,7 @@ app.post('/api/solicitar-credito', authenticateToken, async (req, res) => {
     await ensureSolicitudCreditoClientColumns(connection);
 
     const [motocicletas] = await connection.execute(
-      'SELECT id FROM motocicletas WHERE id = ? AND activa = 1',
+      'SELECT id, stock FROM motocicletas WHERE id = ? AND activa = 1',
       [motocicletaId]
     );
 
@@ -710,15 +1486,25 @@ app.post('/api/solicitar-credito', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'La motocicleta seleccionada no existe o ya no está disponible' });
     }
 
+    if (Number(motocicletas[0].stock || 0) <= 0) {
+      return res.status(400).json({ message: 'La motocicleta seleccionada no tiene stock disponible' });
+    }
+
     const schema = await getSolicitudCreditoColumns(connection);
     const montoColumn = schema.montoColumn;
     const tasaInteresColumn = schema.tasaInteresColumn;
     const salarioColumn = schema.salarioColumn;
     const cuotaInicialColumn = schema.cuotaInicialColumn;
+    const asesorColumn = schema.asesorColumn;
 
     const tasaInteresValue = normalizeTasaInteres(tasaInteres ?? tasa_interes ?? 0.02);
     const insertColumns = ['usuario_id', 'motocicleta_id'];
     const insertValues = [usuario_id, motocicletaId];
+
+    if (asesorColumn) {
+      insertColumns.push(asesorColumn);
+      insertValues.push(asesor_id);
+    }
 
     if (schema.nombreClienteColumn) {
       insertColumns.push(schema.nombreClienteColumn);
@@ -778,12 +1564,16 @@ app.post('/api/solicitar-credito', authenticateToken, async (req, res) => {
 });
 
 // Ruta para obtener solicitudes de crédito (admin)
-app.get('/api/solicitudes-credito', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/solicitudes-credito', authenticateToken, requireStaff, async (req, res) => {
   let connection;
   try {
     connection = await mysql.createConnection(dbConfig);
+    await ensureSolicitudCreditoClientColumns(connection);
     const schema = await getSolicitudCreditoColumns(connection);
     const montoColumn = schema.montoColumn;
+    const isAsesorView = req.user.role === 'asesor';
+    const whereClause = isAsesorView ? ' WHERE sc.asesor_id = ? OR sc.usuario_id = ?' : '';
+    const params = isAsesorView ? [req.user.id, req.user.id] : [];
 
     const [solicitudes] = await connection.execute(`
       SELECT sc.*, 
@@ -799,8 +1589,9 @@ app.get('/api/solicitudes-credito', authenticateToken, requireAdmin, async (req,
       FROM solicitudes_credito sc
       LEFT JOIN usuarios u ON sc.usuario_id = u.id
       LEFT JOIN motocicletas m ON sc.motocicleta_id = m.id
+      ${whereClause}
       ORDER BY sc.created_at DESC
-    `);
+    `, params);
 
     await connection.end();
     res.json(solicitudes);
@@ -836,6 +1627,8 @@ const ensurePagosCreditoTable = async (connection) => {
       estado ENUM('pendiente', 'pagado') DEFAULT 'pendiente',
       fecha_vencimiento DATE NULL,
       fecha_pago DATETIME NULL,
+      comprobante_url VARCHAR(500) NULL,
+      observaciones TEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (solicitud_id) REFERENCES solicitudes_credito(id)
@@ -843,12 +1636,13 @@ const ensurePagosCreditoTable = async (connection) => {
   `);
 };
 
-app.get('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdminOrAsesor, async (req, res) => {
   let connection;
   try {
     const { id } = req.params;
     connection = await mysql.createConnection(dbConfig);
     await ensurePagosCreditoTable(connection);
+    await ensurePagosCreditoColumns(connection);
 
     const [solicitudRows] = await connection.execute(
       'SELECT * FROM solicitudes_credito WHERE id = ?',
@@ -865,28 +1659,32 @@ app.get('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdmin, a
       [id]
     );
 
-    if (pagos.length > 0) {
-      await connection.end();
-      return res.json(pagos);
-    }
+    const pagosMap = new Map();
+    pagos.forEach((pago) => pagosMap.set(Number(pago.numero_cuota), pago));
 
     const plazo = Number(solicitud.plazo || 0);
-    const montoTotal = Number(solicitud.monto_solicitado || 0);
+    const montoTotal = Number(solicitud.monto_solicitado || solicitud.monto || 0);
     const tasaInteres = normalizeTasaInteres(solicitud.tasa_interes || 0.02);
     const cuotaMensual = calcularCuotaMensual(montoTotal, plazo, tasaInteres);
 
-    const pagosGenerados = Array.from({ length: plazo }, (_, index) => ({
-      id: index + 1,
-      solicitud_id: Number(id),
-      numero_cuota: index + 1,
-      monto: Number(cuotaMensual.toFixed(2)),
-      estado: 'pendiente',
-      fecha_vencimiento: null,
-      fecha_pago: null
-    }));
+    const cuotas = Array.from({ length: plazo }, (_, index) => {
+      const numeroCuota = index + 1;
+      const pago = pagosMap.get(numeroCuota) || null;
+      return {
+        id: pago ? pago.id : null,
+        solicitud_id: Number(id),
+        numero_cuota: numeroCuota,
+        monto: Number((pago ? Number(pago.monto || 0) : cuotaMensual).toFixed(2)),
+        estado: pago ? (pago.estado || 'pendiente') : 'pendiente',
+        fecha_vencimiento: pago ? pago.fecha_vencimiento : null,
+        fecha_pago: pago ? pago.fecha_pago : null,
+        comprobante_url: pago ? pago.comprobante_url : null,
+        observaciones: pago ? pago.observaciones : null
+      };
+    });
 
     await connection.end();
-    res.json(pagosGenerados);
+    res.json(cuotas);
   } catch (error) {
     console.error('Error cargando pagos del crédito:', error);
     if (connection) {
@@ -896,14 +1694,46 @@ app.get('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdmin, a
   }
 });
 
-app.post('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/solicitudes-credito/:id/pagos/:numeroCuota/comprobante', authenticateToken, requireAdminOrAsesor, async (req, res) => {
+  let connection;
+  try {
+    const { id, numeroCuota } = req.params;
+    connection = await mysql.createConnection(dbConfig);
+    await ensurePagosCreditoTable(connection);
+    await ensurePagosCreditoColumns(connection);
+
+    const [rows] = await connection.execute(
+      'SELECT comprobante_url FROM pagos_credito WHERE solicitud_id = ? AND numero_cuota = ? LIMIT 1',
+      [id, Number(numeroCuota)]
+    );
+
+    if (rows.length === 0 || !rows[0].comprobante_url) {
+      return res.status(404).json({ message: 'No existe comprobante para esta cuota' });
+    }
+
+    res.json({
+      url: rows[0].comprobante_url,
+      fullUrl: `http://localhost:5000${rows[0].comprobante_url}`
+    });
+  } catch (error) {
+    console.error('Error consultando comprobante:', error);
+    if (connection) {
+      await connection.end().catch(() => {});
+    }
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+});
+
+app.post('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdminOrAsesor, uploadPago.single('comprobante'), async (req, res) => {
   let connection;
   try {
     const { id } = req.params;
-    const { numero_cuota, monto, estado = 'pagado', fecha_pago } = req.body;
+    const { numero_cuota, monto, estado = 'pagado', fecha_pago, observaciones } = req.body;
+    const comprobanteUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     connection = await mysql.createConnection(dbConfig);
     await ensurePagosCreditoTable(connection);
+    await ensurePagosCreditoColumns(connection);
 
     const cuotaNumero = Number(numero_cuota);
     const montoCuota = Number(monto || 0);
@@ -917,22 +1747,25 @@ app.post('/api/solicitudes-credito/:id/pagos', authenticateToken, requireAdmin, 
       [id, cuotaNumero]
     );
 
+    const fechaPagoValue = fecha_pago || new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const observacionesValue = observaciones ? String(observaciones).trim() : null;
+
     if (existingRows.length > 0) {
       await connection.execute(
-        'UPDATE pagos_credito SET monto = ?, estado = ?, fecha_pago = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [montoCuota, estado, fecha_pago || new Date(), existingRows[0].id]
+        'UPDATE pagos_credito SET monto = ?, estado = ?, fecha_pago = ?, comprobante_url = COALESCE(?, comprobante_url), observaciones = COALESCE(?, observaciones), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [montoCuota, estado, fechaPagoValue, comprobanteUrl, observacionesValue, existingRows[0].id]
       );
       await connection.end();
-      return res.json({ message: 'Pago actualizado correctamente' });
+      return res.json({ message: 'Pago actualizado correctamente', comprobante_url: comprobanteUrl });
     }
 
     await connection.execute(
-      'INSERT INTO pagos_credito (solicitud_id, numero_cuota, monto, estado, fecha_pago) VALUES (?, ?, ?, ?, ?)',
-      [id, cuotaNumero, montoCuota, estado, fecha_pago || new Date()]
+      'INSERT INTO pagos_credito (solicitud_id, numero_cuota, monto, estado, fecha_pago, comprobante_url, observaciones) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, cuotaNumero, montoCuota, estado, fechaPagoValue, comprobanteUrl, observacionesValue]
     );
 
     await connection.end();
-    res.json({ message: 'Pago registrado correctamente' });
+    res.json({ message: 'Pago registrado correctamente', comprobante_url: comprobanteUrl });
   } catch (error) {
     console.error('Error registrando pago:', error);
     if (connection) {
@@ -1073,21 +1906,40 @@ app.put('/api/solicitudes-credito/:id', authenticateToken, requireAdmin, async (
     }
 
     connection = await mysql.createConnection(dbConfig);
+    await connection.beginTransaction();
+
+    const [solicitudActual] = await connection.execute(
+      'SELECT estado, motocicleta_id FROM solicitudes_credito WHERE id = ? FOR UPDATE',
+      [id]
+    );
+
+    if (solicitudActual.length === 0) {
+      await connection.rollback();
+      await connection.end();
+      return res.status(404).json({ message: 'Solicitud no encontrada' });
+    }
 
     const observacionesTrim = observaciones ? String(observaciones).trim() : null;
+
+    if (estado === 'aprobada' && String(solicitudActual[0].estado) !== 'aprobada') {
+      await descontarStockMotocicleta(connection, solicitudActual[0].motocicleta_id, 1);
+    }
+
     await connection.execute(
       'UPDATE solicitudes_credito SET estado = ?, observaciones = ? WHERE id = ?',
       [estado, observacionesTrim, id]
     );
 
+    await connection.commit();
     await connection.end();
     res.json({ message: 'Solicitud actualizada exitosamente' });
   } catch (error) {
     console.error('Error actualizando solicitud:', error);
     if (connection) {
+      await connection.rollback().catch(() => {});
       await connection.end().catch(() => {});
     }
-    res.status(500).json({ message: 'Error interno del servidor' });
+    res.status(400).json({ message: error.message || 'Error interno del servidor' });
   }
 });
 
@@ -1099,8 +1951,16 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('Directorio de uploads creado:', uploadsDir);
 }
 
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en puerto ${PORT}`);
-});
+initializeDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Servidor corriendo en puerto ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('Error inicializando la base de datos:', error);
+    process.exit(1);
+  });
+
 
 

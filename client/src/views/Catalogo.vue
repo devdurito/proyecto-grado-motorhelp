@@ -54,6 +54,7 @@
             <p class="moto-year">{{ motocicleta.año }}</p>
             <p class="moto-cc">{{ motocicleta.cilindrada }}</p>
             <p class="moto-price">${{ formatPrice(motocicleta.precio) }}</p>
+            <p class="moto-stock">Stock: {{ Number(motocicleta.stock || 0) }}</p>
             <p class="moto-description">{{ motocicleta.descripcion }}</p>
             <div class="moto-actions">
               <button @click="verDetalles(motocicleta)" class="btn btn-primary">Ver Detalles</button>
@@ -88,6 +89,10 @@
               <div class="info-item">
                 <span class="label">Tipo:</span>
                 <span class="value">{{ motocicletaSeleccionada.tipo }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">Stock:</span>
+                <span class="value">{{ Number(motocicletaSeleccionada.stock || 0) }}</span>
               </div>
               <div class="info-item">
                 <span class="label">Precio:</span>

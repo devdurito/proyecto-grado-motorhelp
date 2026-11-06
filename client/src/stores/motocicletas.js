@@ -1,9 +1,31 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
 
+const normalizeMotocicleta = (motocicleta) => {
+  const precioVenta = Number(motocicleta?.precio_venta ?? motocicleta?.precio ?? 0)
+  const costoCompra = Number(motocicleta?.costo_compra ?? motocicleta?.precio ?? 0)
+
+  return {
+    ...motocicleta,
+    stock: Number(motocicleta?.stock ?? 0),
+    precio: precioVenta,
+    precio_venta: precioVenta,
+    costo_compra: costoCompra,
+    margen_dinero: precioVenta - costoCompra,
+    margen_porcentaje: costoCompra > 0 ? ((precioVenta - costoCompra) / costoCompra) * 100 : 0
+  }
+}
+
 export const useMotocicletasStore = defineStore('motocicletas', {
   state: () => ({
     motocicletas: [],
+    inventarioFinanciero: {
+      capital_invertido_total: 0,
+      valor_venta_total: 0,
+      ganancia_potencial_total: 0,
+      total_motos: 0,
+      margen_porcentaje_promedio: 0
+    },
     loading: false,
     error: null
   }),
@@ -14,7 +36,9 @@ export const useMotocicletasStore = defineStore('motocicletas', {
       this.error = null
       try {
         const response = await axios.get('/api/motocicletas')
-        this.motocicletas = response.data
+        this.motocicletas = Array.isArray(response.data)
+          ? response.data.map(normalizeMotocicleta)
+          : []
       } catch (error) {
         this.error = error.response?.data?.message || 'Error al cargar motocicletas'
       } finally {
@@ -25,9 +49,30 @@ export const useMotocicletasStore = defineStore('motocicletas', {
     async getMotocicleta(id) {
       try {
         const response = await axios.get(`/api/motocicletas/${id}`)
-        return response.data
+        return normalizeMotocicleta(response.data)
       } catch (error) {
         throw new Error(error.response?.data?.message || 'Error al obtener motocicleta')
+      }
+    },
+
+    async fetchInventarioFinanciero() {
+      this.loading = true
+      this.error = null
+      try {
+        const response = await axios.get('/api/inventario/financiero')
+        this.inventarioFinanciero = response.data || {
+          capital_invertido_total: 0,
+          valor_venta_total: 0,
+          ganancia_potencial_total: 0,
+          total_motos: 0,
+          margen_porcentaje_promedio: 0
+        }
+        return this.inventarioFinanciero
+      } catch (error) {
+        this.error = error.response?.data?.message || 'Error al cargar resumen financiero'
+        throw new Error(this.error)
+      } finally {
+        this.loading = false
       }
     },
 

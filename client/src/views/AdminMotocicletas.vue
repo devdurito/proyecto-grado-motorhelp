@@ -3,7 +3,7 @@
     <div class="container">
       <div class="admin-header">
         <h1>Gestión de Motocicletas</h1>
-        <button @click="mostrarFormulario = true" class="btn btn-primary">
+        <button v-if="isAdmin" @click="mostrarFormulario = true" class="btn btn-primary">
           Agregar Motocicleta
         </button>
       </div>
@@ -22,6 +22,7 @@
             <h3>{{ motocicleta.marca }} {{ motocicleta.modelo }}</h3>
             <p class="moto-year">{{ motocicleta.año }}</p>
             <p class="moto-price">${{ formatPrice(motocicleta.precio) }}</p>
+            <p class="moto-stock">Stock: {{ motocicleta.stock ?? 0 }}</p>
             <p class="moto-description">{{ motocicleta.descripcion }}</p>
             <div class="moto-actions">
               <button @click="editarMotocicleta(motocicleta)" class="btn btn-secondary">Editar</button>
@@ -46,6 +47,8 @@
                   type="text" 
                   v-model="formData.marca" 
                   class="form-input"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
                   required
                 >
               </div>
@@ -55,6 +58,8 @@
                   type="text" 
                   v-model="formData.modelo" 
                   class="form-input"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
                   required
                 >
               </div>
@@ -69,6 +74,8 @@
                   class="form-input"
                   :min="yearMin"
                   :max="yearMax"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
                   required
                 >
               </div>
@@ -79,6 +86,8 @@
                   v-model="formData.precio" 
                   class="form-input"
                   step="0.01"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
                   required
                 >
               </div>
@@ -86,11 +95,26 @@
             
             <div class="form-row">
               <div class="form-group">
+                <label class="form-label">Stock</label>
+                <input 
+                  type="number" 
+                  v-model.number="formData.stock" 
+                  class="form-input"
+                  min="0"
+                  step="1"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
+                  required
+                >
+              </div>
+              <div class="form-group">
                 <label class="form-label">Cilindrada</label>
                 <input 
                   type="text" 
                   v-model="formData.cilindrada" 
                   class="form-input"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
                   placeholder="Ej: 600cc"
                 >
               </div>
@@ -101,6 +125,8 @@
                   v-model="formData.tipo" 
                   class="form-input"
                   list="tipos-motocicleta"
+                  :disabled="!isAdmin"
+                  :readonly="!isAdmin"
                   placeholder="Ej: Utilitario, Deportiva, Naked..."
                   required
                 >
@@ -157,6 +183,7 @@
 
 <script>
 import { useMotocicletasStore } from '../stores/motocicletas'
+import { useAuthStore } from '../stores/auth'
 
 export default {
   name: 'AdminMotocicletas',
@@ -170,6 +197,7 @@ export default {
         modelo: '',
         año: '',
         precio: '',
+        stock: 0,
         cilindrada: '',
         tipo: '',
         descripcion: '',
@@ -179,9 +207,13 @@ export default {
   },
   setup() {
     const motocicletasStore = useMotocicletasStore()
-    return { motocicletasStore }
+    const authStore = useAuthStore()
+    return { motocicletasStore, authStore }
   },
   computed: {
+    isAdmin() {
+      return this.authStore.user?.role === 'admin'
+    },
     motocicletas() {
       return this.motocicletasStore.motocicletas
     },
@@ -206,6 +238,7 @@ export default {
         modelo: motocicleta.modelo,
         año: motocicleta.año,
         precio: motocicleta.precio,
+        stock: Number(motocicleta.stock || 0),
         cilindrada: motocicleta.cilindrada,
         tipo: motocicleta.tipo,
         descripcion: motocicleta.descripcion,
@@ -215,15 +248,33 @@ export default {
     },
     
     async guardarMotocicleta() {
+      if (!this.isAdmin && this.motocicletaEditando) {
+        const descripcion = String(this.formData.descripcion || '').trim()
+        if (!descripcion) {
+          alert('Como empleado, solo puedes actualizar la descripción de la motocicleta.')
+          return
+        }
+      }
+
+      if (!this.isAdmin) {
+        if (!this.motocicletaEditando) {
+          alert('No tienes permisos para crear motocicletas.')
+          return
+        }
+      }
+
       // Validar campos antes de enviar
-      if (!this.formData.marca || !this.formData.modelo || !this.formData.año || !this.formData.precio) {
-        alert('Por favor completa todos los campos requeridos: Marca, Modelo, Año y Precio')
-        return
+      if (!this.formData.marca || !this.formData.modelo || !this.formData.año || !this.formData.precio || this.formData.stock === '') {
+        if (this.isAdmin || !this.motocicletaEditando) {
+          alert('Por favor completa todos los campos requeridos: Marca, Modelo, Año, Precio y Stock')
+          return
+        }
       }
       
-      // Convertir año y precio a números para asegurar que sean válidos
+      // Convertir año, precio y stock a números para asegurar que sean válidos
       const añoNum = parseInt(this.formData.año)
       const precioNum = parseFloat(this.formData.precio)
+      const stockNum = Number(this.formData.stock)
       
       const currentYear = new Date().getFullYear()
       const nextYear = currentYear + 1
@@ -242,16 +293,40 @@ export default {
         alert('El precio debe ser un número válido mayor a 0')
         return
       }
+
+      if (!Number.isFinite(stockNum) || stockNum < 0) {
+        alert('El stock debe ser un número válido mayor o igual a 0')
+        return
+      }
       
       this.guardando = true
       try {
-        // Preparar datos asegurando que año y precio sean números
-        const datosParaEnviar = {
+        // Preparar datos asegurando que año, precio y stock sean números
+        const datosBase = {
           ...this.formData,
-          año: añoNum,
-          anio: añoNum,
-          precio: precioNum
+          descripcion: this.formData.descripcion,
+          imagen: this.formData.imagen
         }
+
+        const datosParaEnviar = this.isAdmin
+          ? {
+              ...datosBase,
+              año: añoNum,
+              anio: añoNum,
+              precio: precioNum,
+              stock: stockNum
+            }
+          : {
+              marca: this.motocicletaEditando?.marca || this.formData.marca,
+              modelo: this.motocicletaEditando?.modelo || this.formData.modelo,
+              año: this.motocicletaEditando?.año || añoNum,
+              anio: this.motocicletaEditando?.año || añoNum,
+              precio: this.motocicletaEditando?.precio || precioNum,
+              stock: this.motocicletaEditando?.stock || stockNum,
+              descripcion: this.formData.descripcion,
+              cilindrada: this.motocicletaEditando?.cilindrada || this.formData.cilindrada,
+              tipo: this.motocicletaEditando?.tipo || this.formData.tipo
+            }
         
         console.log('Datos preparados para enviar:', datosParaEnviar)
         
@@ -293,6 +368,7 @@ export default {
         modelo: '',
         año: '',
         precio: '',
+        stock: 0,
         cilindrada: '',
         tipo: '',
         descripcion: '',

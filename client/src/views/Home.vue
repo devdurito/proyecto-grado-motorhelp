@@ -27,9 +27,10 @@
               <h3>{{ motocicleta.marca }} {{ motocicleta.modelo }}</h3>
               <p class="moto-year">{{ motocicleta.año }}</p>
               <p class="moto-price">${{ formatPrice(motocicleta.precio) }}</p>
+              <p class="moto-stock">Stock: {{ Number(motocicleta.stock || 0) }}</p>
               <p class="moto-description">{{ motocicleta.descripcion }}</p>
               <div class="moto-actions">
-                <router-link :to="`/catalogo/${motocicleta.id}`" class="btn btn-primary">Ver Detalles</router-link>
+                <button @click="verDetalles(motocicleta)" class="btn btn-primary">Ver Detalles</button>
               </div>
             </div>
           </div>
@@ -39,6 +40,53 @@
         </div>
       </div>
     </section>
+
+    <div v-if="motocicletaSeleccionada" class="modal-overlay" @click.self="cerrarModal">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <h2>{{ motocicletaSeleccionada.marca }} {{ motocicletaSeleccionada.modelo }}</h2>
+          <button @click="cerrarModal" class="modal-close" aria-label="Cerrar">&times;</button>
+        </div>
+        <div class="modal-content">
+          <div class="modal-image">
+            <img :src="getImageUrl(motocicletaSeleccionada.imagen)" :alt="motocicletaSeleccionada.marca + ' ' + motocicletaSeleccionada.modelo">
+          </div>
+          <div class="modal-info">
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="label">Año:</span>
+                <span class="value">{{ motocicletaSeleccionada.año }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">Cilindrada:</span>
+                <span class="value">{{ motocicletaSeleccionada.cilindrada }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">Tipo:</span>
+                <span class="value">{{ motocicletaSeleccionada.tipo }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">Stock:</span>
+                <span class="value">{{ Number(motocicletaSeleccionada.stock || 0) }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">Precio:</span>
+                <span class="value price">{{ formatPrice(motocicletaSeleccionada.precio) }}</span>
+              </div>
+            </div>
+            <div class="description">
+              <h3>Descripción</h3>
+              <p>{{ motocicletaSeleccionada.descripcion }}</p>
+            </div>
+            <div class="modal-actions">
+              <button @click="irACalculadora(motocicletaSeleccionada)" class="btn btn-primary">
+                Calcular Crédito
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Features Section -->
     <section class="features-section">
@@ -84,7 +132,8 @@ export default {
   name: 'Home',
   data() {
     return {
-      loading: true
+      loading: true,
+      motocicletaSeleccionada: null
     }
   },
   setup() {
@@ -101,6 +150,19 @@ export default {
     this.loading = false
   },
   methods: {
+    verDetalles(motocicleta) {
+      this.motocicletaSeleccionada = motocicleta
+    },
+    cerrarModal() {
+      this.motocicletaSeleccionada = null
+    },
+    irACalculadora(motocicleta) {
+      this.$router.push({
+        name: 'Calculadora',
+        params: { id: String(motocicleta.id) },
+        query: { monto: motocicleta.precio, motocicletaId: motocicleta.id }
+      })
+    },
     formatPrice(price) {
       return new Intl.NumberFormat('es-MX', {
         style: 'currency',
@@ -206,6 +268,118 @@ export default {
   padding: 1.5rem;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 2000;
+}
+
+.modal {
+  width: min(980px, 100%);
+  background: white;
+  border-radius: 1.2rem;
+  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--primary-blue);
+}
+
+.modal-close {
+  border: none;
+  background: #eef6ff;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--primary-blue);
+}
+
+.modal-content {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 1.5rem;
+  padding: 1.5rem;
+}
+
+.modal-image img {
+  width: 100%;
+  height: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: 1rem;
+}
+
+.modal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.info-item {
+  background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+  border: 1px solid rgba(37, 99, 235, 0.08);
+  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+}
+
+.label {
+  display: block;
+  color: var(--gray-600);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.35rem;
+}
+
+.value {
+  color: var(--gray-800);
+  font-weight: 700;
+}
+
+.value.price {
+  color: var(--primary-blue);
+}
+
+.description h3 {
+  color: var(--primary-blue);
+  margin-bottom: 0.5rem;
+}
+
+.description p {
+  color: var(--gray-700);
+  line-height: 1.7;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .moto-info h3 {
   color: var(--primary-blue);
   margin-bottom: 0.5rem;
@@ -292,6 +466,14 @@ export default {
   .hero-actions {
     flex-direction: column;
     align-items: center;
+  }
+
+  .modal-content {
+    grid-template-columns: 1fr;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
   }
   
   .featured-section h2,

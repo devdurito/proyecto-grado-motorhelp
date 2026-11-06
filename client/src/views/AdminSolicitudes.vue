@@ -2,7 +2,7 @@
   <div class="admin-solicitudes">
     <div class="container">
       <div class="admin-header">
-        <h1>Solicitudes de Crédito</h1>
+        <h1>Gestión de Crédito</h1>
         <div class="filtros">
           <select v-model="filtroEstado" @change="aplicarFiltros">
             <option value="">Todos los estados</option>
@@ -13,84 +13,95 @@
         </div>
       </div>
 
+      <div class="view-tabs">
+        <button :class="['tab-btn', { active: vistaActual === 'solicitudes' }]" @click="vistaActual = 'solicitudes'">
+          Solicitudes
+        </button>
+        <button :class="['tab-btn', { active: vistaActual === 'creditos' }]" @click="vistaActual = 'creditos'">
+          Créditos Aprobados
+        </button>
+      </div>
+
       <div v-if="loading" class="loading">
         <div class="spinner"></div>
       </div>
-      
-      <div v-else-if="solicitudesFiltradas.length === 0" class="no-data">
-        <h3>No hay solicitudes</h3>
-        <p>No se encontraron solicitudes con los filtros aplicados</p>
-      </div>
-      
-      <div v-else class="solicitudes-list">
-        <div v-for="solicitud in solicitudesFiltradas" :key="solicitud.id" class="card solicitud-card">
-          <div class="solicitud-header">
-            <div class="solicitud-info">
-              <h3>{{ solicitud.nombre }}</h3>
-              <p>{{ solicitud.email }}</p>
-              <p>{{ solicitud.telefono }}</p>
+
+      <div v-else-if="vistaActual === 'solicitudes'">
+        <div v-if="solicitudesPendientes.length === 0" class="no-data">
+          <h3>No hay solicitudes</h3>
+          <p>No se encontraron solicitudes con los filtros aplicados</p>
+        </div>
+
+        <div v-else class="solicitudes-list">
+          <div v-for="solicitud in solicitudesPendientesFiltradas" :key="solicitud.id" class="card solicitud-card">
+            <div class="solicitud-header">
+              <div class="solicitud-info">
+                <h3>{{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}</h3>
+                <p>{{ solicitud.email }}</p>
+                <p>{{ solicitud.telefono_cliente || solicitud.telefono || 'No registrado' }}</p>
+              </div>
+              <div class="solicitud-status">
+                <span :class="`badge badge-${getStatusClass(solicitud.estado)}`">
+                  {{ solicitud.estado.toUpperCase() }}
+                </span>
+              </div>
             </div>
-            <div class="solicitud-status">
-              <span :class="`badge badge-${getStatusClass(solicitud.estado)}`">
-                {{ solicitud.estado.toUpperCase() }}
-              </span>
+
+            <div class="solicitud-details">
+              <div class="detail-group">
+                <h4>Cliente</h4>
+                <p>{{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}</p>
+                <p>CI: {{ solicitud.ci_cliente || 'No registrado' }}</p>
+                <p>Tel: {{ solicitud.telefono_cliente || solicitud.telefono || 'No registrado' }}</p>
+              </div>
+              <div class="detail-group">
+                <h4>Motocicleta</h4>
+                <p>{{ solicitud.marca }} {{ solicitud.modelo }}</p>
+              </div>
+              <div class="detail-group">
+                <h4>Monto Solicitado</h4>
+                <p class="monto">{{ formatPrice(solicitud.monto) }}</p>
+              </div>
+              <div class="detail-group">
+                <h4>Plazo</h4>
+                <p>{{ solicitud.plazo }} meses</p>
+              </div>
+              <div class="detail-group">
+                <h4>Ingresos Mensuales</h4>
+                <p>{{ formatPrice(solicitud.ingresos_mensuales) }}</p>
+              </div>
             </div>
-          </div>
-          
-          <div class="solicitud-details">
-            <div class="detail-group">
-              <h4>Cliente</h4>
-              <p>{{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}</p>
-              <p>CI: {{ solicitud.ci_cliente || 'No registrado' }}</p>
-              <p>Tel: {{ solicitud.telefono_cliente || solicitud.telefono || 'No registrado' }}</p>
+
+            <div class="solicitud-address">
+              <h4>Dirección</h4>
+              <p>{{ solicitud.direccion }}</p>
             </div>
-            <div class="detail-group">
-              <h4>Motocicleta</h4>
-              <p>{{ solicitud.marca }} {{ solicitud.modelo }}</p>
+
+            <div class="solicitud-actions" v-if="isAdmin && solicitud.estado === 'pendiente'">
+              <button @click="aprobarSolicitud(solicitud.id)" class="btn btn-primary">
+                Aprobar
+              </button>
+              <button @click="rechazarSolicitud(solicitud.id)" class="btn btn-danger">
+                Rechazar
+              </button>
             </div>
-            <div class="detail-group">
-              <h4>Monto Solicitado</h4>
-              <p class="monto">${{ formatPrice(solicitud.monto) }}</p>
+            <div class="solicitud-actions">
+              <button @click="descargarPDF(solicitud.id)" class="btn btn-secondary">
+                Descargar PDF
+              </button>
+              <button v-if="isAdmin && solicitud.estado === 'aprobada'" @click="abrirControlPagos(solicitud)" class="btn btn-secondary">
+                Control de Pagos
+              </button>
             </div>
-            <div class="detail-group">
-              <h4>Plazo</h4>
-              <p>{{ solicitud.plazo }} meses</p>
+
+            <div class="solicitud-fecha">
+              <small>Solicitado el: {{ formatDate(solicitud.created_at) }}</small>
             </div>
-            <div class="detail-group">
-              <h4>Ingresos Mensuales</h4>
-              <p>${{ formatPrice(solicitud.ingresos_mensuales) }}</p>
-            </div>
-          </div>
-          
-          <div class="solicitud-address">
-            <h4>Dirección</h4>
-            <p>{{ solicitud.direccion }}</p>
-          </div>
-          
-          <div class="solicitud-actions" v-if="solicitud.estado === 'pendiente'">
-            <button @click="aprobarSolicitud(solicitud.id)" class="btn btn-primary">
-              Aprobar
-            </button>
-            <button @click="rechazarSolicitud(solicitud.id)" class="btn btn-danger">
-              Rechazar
-            </button>
-          </div>
-          <div class="solicitud-actions">
-            <button @click="descargarPDF(solicitud.id)" class="btn btn-secondary">
-              Descargar PDF
-            </button>
-            <button v-if="solicitud.estado === 'aprobada'" @click="abrirControlPagos(solicitud)" class="btn btn-secondary">
-              Control de Pagos
-            </button>
-          </div>
-          
-          <div class="solicitud-fecha">
-            <small>Solicitado el: {{ formatDate(solicitud.created_at) }}</small>
           </div>
         </div>
       </div>
 
-      <div class="approved-section">
+      <div v-else class="approved-section">
         <div class="section-title-row">
           <h2>Créditos Aprobados</h2>
         </div>
@@ -122,7 +133,7 @@
                 <td><span :class="`badge badge-${getStatusClass(credito.estado)}`">{{ credito.estado }}</span></td>
                 <td>
                   <button @click="abrirControlPagos(credito)" class="btn btn-secondary btn-small">
-                    Ver pago
+                    Ver pagos
                   </button>
                 </td>
               </tr>
@@ -150,6 +161,7 @@
                 <th>Cuota</th>
                 <th>Monto</th>
                 <th>Estado</th>
+                <th>Comprobante</th>
                 <th>Acción</th>
               </tr>
             </thead>
@@ -158,6 +170,17 @@
                 <td>{{ pago.numero_cuota }}</td>
                 <td>{{ formatPrice(pago.monto) }}</td>
                 <td>{{ pago.estado || 'pendiente' }}</td>
+                <td>
+                  <div class="comprobante-cell">
+                    <template v-if="pago.comprobante_url">
+                      <a :href="`http://localhost:5000${pago.comprobante_url}`" target="_blank" class="doc-link">Ver Comprobante</a>
+                    </template>
+                    <label v-else class="file-upload-inline">
+                      <span>Seleccionar documento</span>
+                      <input type="file" accept="image/*,.pdf" @change="onArchivoSeleccionadoFila($event, pago)" />
+                    </label>
+                  </div>
+                </td>
                 <td>
                   <button v-if="(pago.estado || 'pendiente') !== 'pagado'" @click="registrarPago(pago)" class="btn btn-primary btn-small">
                     Registrar pago
@@ -175,6 +198,7 @@
 
 <script>
 import axios from 'axios'
+import { useAuthStore } from '../stores/auth'
 
 export default {
   name: 'AdminSolicitudes',
@@ -185,15 +209,31 @@ export default {
       loading: true,
       modalPagosVisible: false,
       pagosCredito: [],
-      creditoSeleccionado: null
+      creditoSeleccionado: null,
+      vistaActual: 'solicitudes',
+      archivoComprobante: null,
+      subiendoPago: false
     }
   },
+  setup() {
+    const authStore = useAuthStore()
+    return { authStore }
+  },
   computed: {
-    solicitudesFiltradas() {
-      if (!this.filtroEstado) {
-        return this.solicitudes
+    isAdmin() {
+      return this.authStore.user?.role === 'admin'
+    },
+    isEmployee() {
+      return this.authStore.user?.role === 'empleado'
+    },
+    solicitudesPendientes() {
+      return this.solicitudes.filter((s) => s.estado === 'pendiente')
+    },
+    solicitudesPendientesFiltradas() {
+      if (!this.filtroEstado || this.filtroEstado === 'pendiente') {
+        return this.solicitudesPendientes
       }
-      return this.solicitudes.filter(s => s.estado === this.filtroEstado)
+      return this.solicitudes.filter((s) => s.estado === this.filtroEstado)
     },
     solicitudesAprobadas() {
       return this.solicitudes.filter(s => s.estado === 'aprobada')
@@ -215,6 +255,13 @@ export default {
       }
     },
 
+    onArchivoSeleccionadoFila(event, pago) {
+      const file = event.target.files && event.target.files[0] ? event.target.files[0] : null
+      if (!file) return
+      this.archivoComprobante = file
+      this.registrarPago(pago)
+    },
+
     calcularCuotaCredito(credito) {
       const monto = Number(credito.monto || 0)
       const plazo = Number(credito.plazo || 0)
@@ -231,6 +278,7 @@ export default {
     async abrirControlPagos(credito) {
       this.creditoSeleccionado = credito
       this.modalPagosVisible = true
+      this.archivoComprobante = null
       await this.cargarPagos(credito.id)
     },
 
@@ -238,6 +286,7 @@ export default {
       this.modalPagosVisible = false
       this.creditoSeleccionado = null
       this.pagosCredito = []
+      this.archivoComprobante = null
     },
 
     async cargarPagos(creditoId) {
@@ -251,20 +300,40 @@ export default {
     },
 
     async registrarPago(pago) {
-      try {
-        await axios.post(`/api/solicitudes-credito/${this.creditoSeleccionado.id}/pagos`, {
-          numero_cuota: pago.numero_cuota,
-          monto: pago.monto,
-          estado: 'pagado',
-          fecha_pago: new Date().toISOString()
-        })
+      if (this.subiendoPago) return
 
-        this.pagosCredito = this.pagosCredito.map(item =>
-          item.numero_cuota === pago.numero_cuota ? { ...item, estado: 'pagado' } : item
+      try {
+        this.subiendoPago = true
+
+        const formData = new FormData()
+        formData.append('numero_cuota', pago.numero_cuota)
+        formData.append('monto', pago.monto)
+        formData.append('estado', 'pagado')
+        formData.append('fecha_pago', new Date().toISOString())
+
+        if (this.archivoComprobante) {
+          formData.append('comprobante', this.archivoComprobante)
+        }
+
+        await axios.post(
+          `/api/solicitudes-credito/${this.creditoSeleccionado.id}/pagos`,
+          formData,
+          {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          }
         )
+
+        await this.cargarPagos(this.creditoSeleccionado.id)
+        this.archivoComprobante = null
+        const input = document.getElementById('comprobante-pago')
+        if (input) input.value = ''
       } catch (error) {
         console.error('Error registrando pago:', error)
         alert('No se pudo registrar el pago.')
+      } finally {
+        this.subiendoPago = false
       }
     },
     
@@ -282,18 +351,28 @@ export default {
     },
     
     async aprobarSolicitud(id) {
+      if (!this.isAdmin) {
+        alert('No tienes permisos para aprobar solicitudes.')
+        return
+      }
+
       if (confirm('¿Estás seguro de que quieres aprobar esta solicitud?')) {
         try {
           await axios.put(`/api/solicitudes-credito/${id}`, { estado: 'aprobada' })
           await this.cargarSolicitudes()
           alert('Solicitud aprobada exitosamente')
         } catch (error) {
-          alert('Error al aprobar la solicitud')
+          alert(error.response?.data?.message || 'Error al aprobar la solicitud')
         }
       }
     },
     
     async rechazarSolicitud(id) {
+      if (!this.isAdmin) {
+        alert('No tienes permisos para rechazar solicitudes.')
+        return
+      }
+
       const observaciones = prompt('Ingresa las observaciones para el rechazo:')
       if (observaciones !== null) {
         try {
@@ -304,7 +383,7 @@ export default {
           await this.cargarSolicitudes()
           alert('Solicitud rechazada')
         } catch (error) {
-          alert('Error al rechazar la solicitud')
+          alert(error.response?.data?.message || 'Error al rechazar la solicitud')
         }
       }
     },
@@ -495,6 +574,114 @@ export default {
   text-align: right;
   color: var(--gray-500);
   font-size: 0.875rem;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding-bottom: 0.75rem;
+}
+
+.tab-btn {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--gray-700);
+  padding: 0.75rem 1.2rem;
+  border-radius: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  background: var(--primary-blue);
+  color: white;
+  border-color: var(--primary-blue);
+}
+
+.approved-table-wrapper {
+  overflow-x: auto;
+  background: rgba(255,255,255,0.8);
+  border-radius: 1rem;
+  border: 1px solid rgba(15,23,42,0.08);
+  box-shadow: 0 8px 24px rgba(15,23,42,0.06);
+}
+
+.approved-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+.approved-table th,
+.approved-table td {
+  padding: 1rem 0.85rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  text-align: left;
+}
+
+.approved-table th {
+  color: var(--gray-700);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.payments-table-wrapper {
+  overflow-x: auto;
+  background: rgba(255,255,255,0.82);
+  border-radius: 1rem;
+  border: 1px solid rgba(15,23,42,0.08);
+  padding: 1rem;
+}
+
+.payments-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+.payments-table th,
+.payments-table td {
+  text-align: left;
+  padding: 0.9rem 0.75rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.comprobante-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.file-upload-inline {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: rgba(59, 130, 246, 0.04);
+  border: 1px dashed rgba(37, 99, 235, 0.4);
+  border-radius: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  color: var(--gray-700);
+  font-size: 0.78rem;
+}
+
+.file-upload-inline input {
+  max-width: 160px;
+}
+
+.doc-link {
+  color: var(--primary-blue);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.text-muted {
+  color: var(--gray-500);
+}
+
+.text-success {
+  color: #15803d;
+  font-weight: 700;
 }
 
 @media (max-width: 768px) {

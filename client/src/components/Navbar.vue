@@ -16,12 +16,13 @@
           <router-link to="/catalogo" class="nav-link">Catálogo</router-link>
           <router-link to="/calculadora" class="nav-link">Calculadora</router-link>
           
-          <!-- Admin Links -->
-          <template v-if="authStore.isAdmin">
+          <!-- Admin/Staff Links -->
+          <template v-if="authStore.isStaff">
             <router-link to="/admin" class="nav-link admin-link">Admin</router-link>
             <router-link to="/admin/motocicletas" class="nav-link admin-link">Motocicletas</router-link>
+            <router-link v-if="authStore.isAdmin" to="/admin/inventario-financiero" class="nav-link admin-link">Inventario</router-link>
             <router-link to="/admin/solicitudes" class="nav-link admin-link">Solicitudes</router-link>
-            <router-link to="/admin/usuarios" class="nav-link admin-link">Usuarios</router-link>
+            <router-link v-if="authStore.isAdmin" to="/admin/usuarios" class="nav-link admin-link">Usuarios</router-link>
           </template>
         </div>
 

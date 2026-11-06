@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
+const staffRoles = ['admin', 'empleado', 'asesor', 'contabilidad']
+
 const routes = [
   {
     path: '/',
@@ -19,7 +21,7 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/calculadora/:id?', // El '?' hace que el ID sea opcional en la URL
+    path: '/calculadora/:id?',
     name: 'Calculadora',
     component: () => import('../views/Calculadora.vue')
   },
@@ -29,22 +31,33 @@ const routes = [
     component: () => import('../views/Login.vue')
   },
   {
+    path: '/register',
+    name: 'Register',
+    component: () => import('../views/Register.vue')
+  },
+  {
     path: '/admin',
     name: 'Admin',
     component: () => import('../views/Admin.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true }
+    meta: { requiresAuth: true, requiresStaff: true }
   },
   {
     path: '/admin/motocicletas',
     name: 'AdminMotocicletas',
     component: () => import('../views/AdminMotocicletas.vue'),
+    meta: { requiresAuth: true, requiresStaff: true }
+  },
+  {
+    path: '/admin/inventario-financiero',
+    name: 'AdminInventarioFinanciero',
+    component: () => import('../views/AdminInventarioFinanciero.vue'),
     meta: { requiresAuth: true, requiresAdmin: true }
   },
   {
     path: '/admin/solicitudes',
     name: 'AdminSolicitudes',
     component: () => import('../views/AdminSolicitudes.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true }
+    meta: { requiresAuth: true, requiresStaff: true }
   },
   {
     path: '/admin/usuarios',
@@ -61,10 +74,13 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
+  const role = authStore.user?.role
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next('/login')
-  } else if (to.meta.requiresAdmin && authStore.user?.role !== 'admin' && authStore.user?.role !== 'empleado') {
+  } else if (to.meta.requiresAdmin && role !== 'admin') {
+    next('/')
+  } else if (to.meta.requiresStaff && !staffRoles.includes(role)) {
     next('/')
   } else {
     next()

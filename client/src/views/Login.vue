@@ -42,7 +42,8 @@
           </form>
 
           <div class="login-footer">
-            <p>Contacta al administrador para obtener una cuenta</p>
+            <p>¿No tienes cuenta?</p>
+            <router-link to="/register" class="btn btn-secondary login-link">Crear Cuenta</router-link>
           </div>
         </div>
       </div>
@@ -157,10 +158,18 @@ export default {
   text-align: center;
   padding-top: 1rem;
   border-top: 1px solid var(--gray-200);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .login-footer p {
   color: var(--gray-600);
+  margin: 0;
+}
+
+.login-link {
+  width: 100%;
 }
 
 .login-footer a {
