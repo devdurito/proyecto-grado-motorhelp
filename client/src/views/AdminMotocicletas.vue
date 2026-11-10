@@ -1,112 +1,203 @@
 <template>
-  <div class="admin-motocicletas">
-    <div class="container">
-      <div class="admin-header">
-        <h1>Gestión de Motocicletas</h1>
-        <div class="header-actions">
-          <button v-if="canSell" @click="abrirVentaContado()" class="btn btn-secondary">
-            Venta al contado
-          </button>
-          <button v-if="isAdmin" @click="abrirFormulario()" class="btn btn-primary">
-            Agregar Motocicleta
-          </button>
-        </div>
+  <div class="mh-page">
+    <div class="mh-page-header">
+      <div>
+        <p class="mh-eyebrow">Operación</p>
+        <h2 class="mh-title">Inventario de motocicletas</h2>
+        <p class="mh-subtitle">Ficha técnica, existencias y precios de venta de cada modelo.</p>
       </div>
-
-      <div v-if="totalStockBajo > 0" class="stock-banner" role="status">
-        <strong>⚠ {{ totalStockBajo }} motocicleta(s) con stock bajo</strong>
-        (menos de {{ STOCK_MINIMO }} unidades).
-        <button
-          v-if="!filtros.soloStockBajo"
-          type="button"
-          class="stock-banner__link"
-          @click="filtros = { ...filtros, soloStockBajo: true }"
-        >
-          Ver solo estas
+      <div class="flex flex-wrap gap-2">
+        <button v-if="canSell" type="button" class="mh-btn mh-btn-secondary" @click="abrirVentaContado()">
+          Venta al contado
+        </button>
+        <button v-if="isAdmin" type="button" class="mh-btn mh-btn-primary" @click="abrirFormulario()">
+          <span class="text-base leading-none">+</span> Agregar motocicleta
         </button>
       </div>
+    </div>
 
-      <InventarioFiltros
-        v-model="filtros"
-        :marcas="marcas"
-        :tipos="tipos"
-        :total="motocicletas.length"
-        :mostrados="filtradas.length"
-        :stock-bajo="totalStockBajo"
-        :stock-minimo="STOCK_MINIMO"
-        :hay-filtros="hayFiltros"
-        @limpiar="limpiarFiltros"
-      />
-
-      <div v-if="loading" class="loading">
-        <div class="spinner"></div>
+    <!-- KPIs: operativos para todo el personal; financieros SOLO admin -->
+    <section class="mh-kpi-grid mb-6" aria-label="Resumen de inventario">
+      <div class="mh-kpi mh-kpi--brand">
+        <p class="mh-kpi-label">Modelos activos</p>
+        <p class="mh-kpi-value">{{ resumen.modelos }}</p>
+        <p class="mh-kpi-meta">{{ resumen.unidades }} unidades en stock</p>
       </div>
-
-      <div v-else-if="filtradas.length === 0" class="no-data">
-        <p>{{ motocicletas.length ? 'Ninguna motocicleta coincide con los filtros.' : 'No hay motocicletas registradas.' }}</p>
+      <div :class="['mh-kpi', totalStockBajo > 0 ? 'mh-kpi--danger' : 'mh-kpi--success']">
+        <p class="mh-kpi-label">Stock bajo</p>
+        <p class="mh-kpi-value">{{ totalStockBajo }}</p>
+        <p class="mh-kpi-meta">Modelos con menos de {{ STOCK_MINIMO }} unidades</p>
       </div>
+      <template v-if="isAdmin">
+        <div class="mh-kpi mh-kpi--warning">
+          <p class="mh-kpi-label">Capital invertido</p>
+          <p class="mh-kpi-value !text-2xl">{{ formatMoney(resumen.capitalInvertido) }}</p>
+          <p class="mh-kpi-meta">Costo de compra × stock</p>
+        </div>
+        <div class="mh-kpi mh-kpi--success">
+          <p class="mh-kpi-label">Ganancia potencial</p>
+          <p class="mh-kpi-value !text-2xl">{{ formatMoney(resumen.gananciaPotencial) }}</p>
+          <p class="mh-kpi-meta">Margen promedio {{ resumen.margenPorcentaje.toFixed(1) }}% al contado</p>
+        </div>
+      </template>
+    </section>
 
-      <div v-else class="motocicletas-grid">
-        <article
-          v-for="moto in filtradas"
-          :key="moto.id"
-          :class="['card', 'moto-admin-card', { 'moto-admin-card--stock-bajo': moto.stock_bajo }]"
-        >
-          <div class="moto-image">
-            <img :src="getImageUrl(moto.imagen)" :alt="`${moto.marca} ${moto.modelo}`">
-            <span v-if="moto.tipo" class="moto-tipo">{{ moto.tipo }}</span>
-          </div>
-          <div class="moto-info">
-            <h3>{{ moto.marca }} {{ moto.modelo }}</h3>
-            <p class="moto-year">{{ moto.año }}<span v-if="moto.cilindrada"> · {{ moto.cilindrada }}</span></p>
+    <div
+      v-if="totalStockBajo > 0"
+      class="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-danger-50 px-4 py-3 text-sm text-danger-700"
+      role="status"
+    >
+      <AppIcon name="alert" size="sm" />
+      <strong>{{ totalStockBajo }} motocicleta(s) con stock bajo</strong>
+      <span>(menos de {{ STOCK_MINIMO }} unidades).</span>
+      <button
+        v-if="!filtros.soloStockBajo"
+        type="button"
+        class="cursor-pointer border-0 bg-transparent p-0 font-semibold text-danger-700 underline"
+        @click="filtros = { ...filtros, soloStockBajo: true }"
+      >
+        Ver solo estas
+      </button>
+    </div>
 
-            <dl class="moto-precios">
-              <div>
-                <dt>Contado</dt>
-                <dd class="moto-price">{{ formatPrice(moto.precio_venta_contado) }}</dd>
-              </div>
-              <div>
-                <dt>Crédito</dt>
-                <dd>{{ formatPrice(moto.precio_venta_credito) }}</dd>
-              </div>
-              <div v-if="isAdmin && moto.costo_compra != null">
-                <dt>Costo</dt>
-                <dd>{{ formatPrice(moto.costo_compra) }}</dd>
-              </div>
-            </dl>
+    <InventarioFiltros
+      v-model="filtros"
+      :marcas="marcas"
+      :tipos="tipos"
+      :total="motocicletas.length"
+      :mostrados="filtradas.length"
+      :stock-bajo="totalStockBajo"
+      :stock-minimo="STOCK_MINIMO"
+      :hay-filtros="hayFiltros"
+      @limpiar="limpiarFiltros"
+    />
 
-            <p :class="['moto-stock', { 'moto-stock--bajo': moto.stock_bajo }]">
-              Stock: {{ moto.stock }}
-              <span v-if="moto.stock_bajo" class="stock-badge">Stock bajo</span>
-            </p>
-            <p class="moto-description">{{ moto.descripcion }}</p>
+    <div v-if="loading" class="loading"><div class="spinner"></div></div>
 
-            <button
-              v-if="isAdmin && moto.tiene_recibo"
-              type="button"
-              class="recibo-link"
-              @click="verRecibo(moto.id)"
-            >
-              📄 Ver recibo de compra
-            </button>
-            <p v-else-if="isAdmin" class="recibo-faltante">Sin recibo de compra</p>
-
-            <div class="moto-actions">
-              <button @click="abrirFormulario(moto)" class="btn btn-secondary">Editar</button>
-              <button v-if="isAdmin" @click="eliminarMotocicleta(moto.id)" class="btn btn-danger">Eliminar</button>
-              <button
-                v-if="canSell"
-                @click="abrirVentaContado(moto.id)"
-                class="btn btn-primary"
-                :disabled="!(moto.stock > 0)"
-                :title="moto.stock > 0 ? 'Vender al contado' : 'Sin stock'"
+    <!-- Tabla técnica de inventario -->
+    <div v-else class="mh-table-wrap">
+      <table class="mh-table tabla-inventario">
+        <thead>
+          <tr>
+            <th class="w-16">Imagen</th>
+            <th>Marca</th>
+            <th>Modelo</th>
+            <th>Tipo</th>
+            <th>Cilindrada</th>
+            <th>Color</th>
+            <th class="num">Stock</th>
+            <th v-if="isAdmin" class="num">Costo<br>compra</th>
+            <th class="num">Precio<br>contado</th>
+            <th class="num">Precio<br>crédito</th>
+            <th v-if="isAdmin" class="num">Inversión<br>en stock</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="filtradas.length === 0">
+            <td :colspan="totalColumnas" class="mh-table-empty">
+              {{ motocicletas.length ? 'Ninguna motocicleta coincide con los filtros.' : 'No hay motocicletas registradas.' }}
+            </td>
+          </tr>
+          <tr
+            v-for="moto in filtradas"
+            :key="moto.id"
+            :class="{ 'fila-stock-bajo': moto.stock_bajo }"
+          >
+            <td>
+              <img
+                v-if="moto.imagen && !imagenesRotas.has(moto.id)"
+                :src="getImageUrl(moto.imagen)"
+                :alt="`${moto.marca} ${moto.modelo}`"
+                class="block h-10 w-12 rounded-md border border-steel-200 bg-steel-100 object-cover"
+                loading="lazy"
+                @error="imagenesRotas.add(moto.id)"
               >
-                Vender
-              </button>
-            </div>
-          </div>
-        </article>
-      </div>
+              <span
+                v-else
+                class="flex h-10 w-12 items-center justify-center rounded-md border border-steel-200 bg-steel-100 text-steel-400"
+                :title="`${moto.marca} ${moto.modelo} · sin imagen`"
+              >
+                <AppIcon name="moto" />
+              </span>
+            </td>
+            <td class="whitespace-nowrap font-semibold text-carbon-900">{{ moto.marca }}</td>
+            <td class="min-w-[9rem]">
+              <p class="m-0 font-medium text-carbon-900" :title="moto.descripcion || ''">{{ moto.modelo }}</p>
+              <p class="m-0 text-xs text-steel-500">Año {{ moto.año }}</p>
+            </td>
+            <td class="capitalize">{{ moto.tipo || '—' }}</td>
+            <td class="whitespace-nowrap">{{ moto.cilindrada || '—' }}</td>
+            <td class="whitespace-nowrap">{{ moto.color || '—' }}</td>
+            <td class="num whitespace-nowrap">
+              <span
+                :class="['inline-flex items-center gap-1.5 font-bold', moto.stock_bajo ? 'text-danger-700' : 'text-carbon-900']"
+                :title="moto.stock_bajo ? 'Stock bajo (menos de ' + STOCK_MINIMO + ' unidades)' : ''"
+              >
+                <AppIcon v-if="moto.stock_bajo" name="alert" size="sm" />
+                {{ moto.stock }}
+              </span>
+            </td>
+            <td v-if="isAdmin" class="num whitespace-nowrap text-steel-600">{{ formatMoney(moto.costo_compra) }}</td>
+            <td class="num whitespace-nowrap font-semibold text-carbon-900">{{ formatMoney(moto.precio_venta_contado) }}</td>
+            <td class="num whitespace-nowrap">{{ formatMoney(moto.precio_venta_credito) }}</td>
+            <td v-if="isAdmin" class="num whitespace-nowrap">
+              <p class="m-0 font-semibold text-carbon-900">{{ formatMoney(inversionStock(moto)) }}</p>
+              <p
+                v-if="moto.margen_porcentaje != null"
+                :class="['m-0 text-xs', moto.margen_porcentaje < 0 ? 'text-danger-700' : 'text-success-700']"
+              >
+                Margen {{ moto.margen_porcentaje.toFixed(1) }}%
+              </p>
+            </td>
+            <td>
+              <div class="flex justify-end gap-1">
+                <button
+                  v-if="canSell"
+                  type="button"
+                  class="mh-btn mh-btn-primary mh-btn-sm"
+                  :disabled="!(moto.stock > 0)"
+                  :title="moto.stock > 0 ? 'Vender al contado' : 'Sin stock'"
+                  @click="abrirVentaContado(moto.id)"
+                >
+                  Vender
+                </button>
+                <button
+                  type="button"
+                  class="accion-icono"
+                  :title="isAdmin ? 'Editar motocicleta' : 'Editar descripción'"
+                  :aria-label="`Editar ${moto.marca} ${moto.modelo}`"
+                  @click="abrirFormulario(moto)"
+                >
+                  <AppIcon name="edit" size="sm" />
+                </button>
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="accion-icono"
+                  :disabled="!moto.tiene_recibo"
+                  :title="moto.tiene_recibo ? 'Ver recibo de compra' : 'Sin recibo de compra'"
+                  :aria-label="moto.tiene_recibo ? 'Ver recibo de compra' : 'Sin recibo de compra'"
+                  @click="verRecibo(moto.id)"
+                >
+                  <AppIcon name="receipt" size="sm" />
+                </button>
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="accion-icono accion-icono--peligro"
+                  title="Eliminar motocicleta"
+                  :aria-label="`Eliminar ${moto.marca} ${moto.modelo}`"
+                  @click="eliminarMotocicleta(moto.id)"
+                >
+                  <AppIcon name="trash" size="sm" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
       <!-- Modal de formulario -->
       <div v-if="mostrarFormulario" class="modal-overlay" @click="cerrarFormulario">
@@ -158,6 +249,7 @@
                 </div>
               </div>
 
+              <div class="form-row">
               <div class="form-group">
                 <label class="form-label" for="mf-tipo">Tipo *</label>
                 <input
@@ -172,6 +264,14 @@
                 <datalist id="tipos-motocicleta">
                   <option v-for="tipo in tiposSugeridos" :key="tipo" :value="tipo" />
                 </datalist>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="mf-color">Color</label>
+                <input id="mf-color" v-model.trim="form.color" type="text" class="form-input" list="colores-motocicleta" placeholder="Ej: Rojo, Negro mate…">
+                <datalist id="colores-motocicleta">
+                  <option v-for="color in COLORES_BASE" :key="color" :value="color" />
+                </datalist>
+              </div>
               </div>
             </fieldset>
 
@@ -250,7 +350,6 @@
         :motocicleta-id="ventaContado.motocicletaId"
         @close="ventaContado.open = false"
       />
-    </div>
   </div>
 </template>
 
@@ -261,12 +360,14 @@ import { useAuthStore } from '../stores/auth'
 import { useInventarioFiltros } from '../composables/useInventarioFiltros'
 import VentaContadoModal from '../components/VentaContadoModal.vue'
 import InventarioFiltros from '../components/InventarioFiltros.vue'
+import AppIcon from '../components/layout/AppIcon.vue'
 
 const API_ORIGIN = 'http://localhost:5000'
 const TIPOS_BASE = [
   'Chopper', 'Semichopper', 'Deportiva', 'Naked', 'Touring', 'Cruiser', 'Adventure',
   'Scooter', 'Utilitario', 'Enduro', 'Cross', 'Custom', 'Superdeportiva'
 ]
+const COLORES_BASE = ['Negro', 'Blanco', 'Rojo', 'Azul', 'Gris', 'Plata', 'Verde', 'Amarillo', 'Naranja', 'Negro mate']
 
 const motocicletasStore = useMotocicletasStore()
 const authStore = useAuthStore()
@@ -279,6 +380,34 @@ const loading = computed(() => motocicletasStore.loading)
 // ---------- Filtros ----------
 const { filtros, marcas, tipos, filtradas, totalStockBajo, hayFiltros, limpiarFiltros } =
   useInventarioFiltros(motocicletas)
+
+// ---------- Tabla y KPIs ----------
+// La inversión llega calculada desde el servidor solo para el admin; si faltara, se deriva del costo.
+const inversionStock = (moto) =>
+  moto.inversion_stock != null ? Number(moto.inversion_stock) : Number(moto.costo_compra || 0) * Number(moto.stock || 0)
+
+// Las métricas financieras solo se calculan para el admin: para otros roles el
+// servidor no envía costo_compra, así que no hay datos de costo en memoria.
+const resumen = computed(() => {
+  const lista = motocicletas.value
+  const base = { modelos: lista.length, unidades: lista.reduce((t, m) => t + Number(m.stock || 0), 0) }
+  if (!isAdmin.value) return base
+
+  const capitalInvertido = lista.reduce((t, m) => t + inversionStock(m), 0)
+  const gananciaPotencial = lista.reduce(
+    (t, m) => t + (Number(m.precio_venta_contado || 0) - Number(m.costo_compra || 0)) * Number(m.stock || 0),
+    0
+  )
+  return {
+    ...base,
+    capitalInvertido,
+    gananciaPotencial,
+    margenPorcentaje: capitalInvertido > 0 ? (gananciaPotencial / capitalInvertido) * 100 : 0
+  }
+})
+
+// Imagen, Marca, Modelo, Tipo, Cilindrada, Color, Stock, Contado, Crédito, Acciones (+ Costo e Inversión para admin)
+const totalColumnas = computed(() => (isAdmin.value ? 12 : 10))
 
 const tiposSugeridos = computed(() => {
   const vistos = new Set(TIPOS_BASE.map((t) => t.toLowerCase()))
@@ -303,6 +432,7 @@ const formularioVacio = () => ({
   stock: 0,
   cilindrada: '',
   tipo: '',
+  color: '',
   costo_compra: null,
   precio_venta_contado: null,
   precio_venta_credito: null,
@@ -346,6 +476,7 @@ function abrirFormulario(moto = null) {
       stock: Number(moto.stock || 0),
       cilindrada: moto.cilindrada || '',
       tipo: moto.tipo || '',
+      color: moto.color || '',
       costo_compra: moto.costo_compra,
       precio_venta_contado: moto.precio_venta_contado,
       precio_venta_credito: moto.precio_venta_credito,
@@ -430,6 +561,14 @@ async function verRecibo(id) {
 }
 
 // ---------- Utilidades ----------
+// Motos cuya imagen no carga (archivo ausente en /uploads): se muestra un ícono en su lugar
+const imagenesRotas = reactive(new Set())
+
+// Formato compacto para la tabla y KPIs: sin decimales (los precios del inventario son enteros)
+function formatMoney(value) {
+  return `BOB ${Math.round(Number(value || 0)).toLocaleString('es-BO')}`
+}
+
 function formatPrice(value) {
   return `BOB ${Number(value || 0).toLocaleString('es-BO', {
     minimumFractionDigits: 2,
@@ -448,202 +587,96 @@ onMounted(() => motocicletasStore.fetchMotocicletas())
 </script>
 
 <style scoped>
-.admin-motocicletas {
-  padding: 2rem 0;
+/* Tabla compacta: 12 columnas deben caber en un monitor de 1366–1440 px */
+.tabla-inventario :is(th, td) {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
 }
 
-.admin-header {
-  display: flex;
-  justify-content: space-between;
+.tabla-inventario td {
+  font-size: 0.8125rem;
+}
+
+/* Columna Acciones fija a la derecha: siempre visible aunque la tabla tenga scroll horizontal */
+.tabla-inventario :is(th, td):last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  box-shadow: -6px 0 8px -6px rgba(10, 27, 61, 0.25);
+}
+
+.tabla-inventario th:last-child {
+  background: #0a1b3d;
+}
+
+.tabla-inventario td:last-child {
+  background: #fff;
+}
+
+.tabla-inventario tbody tr:hover td:last-child {
+  background: #f8fafc;
+}
+
+/* Encabezados de dos líneas ("Precio / contado") para ganar ancho */
+.tabla-inventario th {
+  white-space: normal;
+  line-height: 1.25;
+  font-size: 0.6875rem;
+  vertical-align: bottom;
+}
+
+.accion-icono {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: 2rem;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.admin-header h1 {
-  color: var(--primary-blue);
-  margin: 0;
-}
-
-.stock-banner {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  border-radius: 10px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-}
-
-.stock-banner__link {
-  background: none;
-  border: none;
-  color: #991b1b;
-  text-decoration: underline;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--gray-200, #e5e7eb);
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #475569;
   cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-  margin-left: 0.25rem;
+  transition: background 0.15s, color 0.15s;
 }
 
-.no-data {
-  text-align: center;
-  color: var(--gray-500);
-  padding: 3rem 1rem;
+.accion-icono:hover:not(:disabled) {
+  background: #eef8ff;
+  color: #0156d5;
 }
 
-.motocicletas-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 2rem;
+.accion-icono:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
-.moto-admin-card {
-  transition: all 0.3s ease;
-  border: 2px solid transparent;
+.accion-icono--peligro:hover:not(:disabled) {
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
-.moto-admin-card:hover {
-  transform: translateY(-2px);
+/* Alerta de inventario: fila en rojo cuando stock < STOCK_MINIMO */
+.mh-table tbody tr.fila-stock-bajo td {
+  background: #fef2f2;
 }
 
-/* Alerta de inventario: stock < STOCK_MINIMO */
-.moto-admin-card--stock-bajo {
-  border-color: var(--red-accent, #dc2626);
-  background: #fff5f5;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+.mh-table tbody tr.fila-stock-bajo td:first-child {
+  box-shadow: inset 3px 0 0 #dc2626;
 }
 
-.moto-image {
-  position: relative;
-  height: 200px;
-  overflow: hidden;
+.mh-table tbody tr.fila-stock-bajo:hover td {
+  background: #fee2e2;
 }
 
-.moto-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.moto-tipo {
-  position: absolute;
-  top: 0.75rem;
-  left: 0.75rem;
-  background: rgba(30, 34, 41, 0.8);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-}
-
-.moto-info {
-  padding: 1.5rem;
-}
-
-.moto-info h3 {
-  color: var(--primary-blue);
-  margin-bottom: 0.25rem;
-}
-
-.moto-year {
-  color: var(--gray-600);
-  font-size: 0.875rem;
-  margin-bottom: 0.75rem;
-}
-
-.moto-precios {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
-}
-
-.moto-precios dt {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--gray-500);
-}
-
-.moto-precios dd {
-  margin: 0;
-  font-weight: 600;
-  color: var(--gray-800);
-  font-size: 0.9rem;
-}
-
-.moto-precios .moto-price {
-  color: var(--success);
-}
-
-.moto-stock {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  color: var(--gray-700);
-  margin-bottom: 0.5rem;
-}
-
-.moto-stock--bajo {
-  color: var(--red-accent, #dc2626);
-}
-
-.stock-badge {
-  background: var(--red-accent, #dc2626);
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-}
-
-.moto-description {
-  color: var(--gray-600);
-  margin-bottom: 1rem;
-  line-height: 1.5;
-}
-
+/* Enlace "Ver actual" del recibo dentro del modal */
 .recibo-link {
   background: none;
   border: none;
   padding: 0;
+  margin-left: 0.25rem;
   color: var(--secondary-blue);
   cursor: pointer;
   font: inherit;
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
   text-decoration: underline;
-}
-
-.recibo-link--inline {
-  margin: 0 0 0 0.25rem;
-  font-size: inherit;
-}
-
-.recibo-faltante {
-  color: var(--warning);
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
-}
-
-.moto-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.moto-actions .btn {
-  flex: 1;
-  padding: 0.5rem;
-  font-size: 0.875rem;
 }
 
 .modal-overlay {
@@ -760,16 +793,6 @@ onMounted(() => motocicletasStore.fetchMotocicletas())
 }
 
 @media (max-width: 768px) {
-  .admin-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-
-  .motocicletas-grid {
-    grid-template-columns: 1fr;
-  }
-
   .form-row,
   .form-row--3 {
     grid-template-columns: 1fr;

@@ -47,7 +47,7 @@ export function useInventarioFiltros(motocicletas) {
       if (tipoN && normalizar(moto.tipo) !== tipoN) return false
       if (soloStockBajo && !moto.stock_bajo) return false
       if (texto) {
-        const contenido = normalizar(`${moto.marca} ${moto.modelo} ${moto.tipo} ${moto.cilindrada} ${moto.año}`)
+        const contenido = normalizar(`${moto.marca} ${moto.modelo} ${moto.tipo} ${moto.cilindrada} ${moto.color || ""} ${moto.año}`)
         if (!contenido.includes(texto)) return false
       }
       return true

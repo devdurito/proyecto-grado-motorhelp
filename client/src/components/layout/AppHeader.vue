@@ -1,5 +1,5 @@
 <template>
-  <header class="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-steel-200 bg-white/95 px-4 backdrop-blur sm:px-6">
+  <header class="sticky top-0 z-30 flex print:hidden h-16 shrink-0 items-center gap-3 border-b border-steel-200 bg-white/95 px-4 backdrop-blur sm:px-6">
     <!-- Menú móvil -->
     <button
       type="button"

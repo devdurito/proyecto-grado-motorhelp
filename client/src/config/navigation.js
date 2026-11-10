@@ -39,6 +39,7 @@ export const NAV_SECTIONS = [
       { label: 'Panel Financiero', to: '/admin/panel-financiero', icon: 'finance', roles: ['admin'] },
       { label: 'Compras e Inventario', to: '/admin/inventario-financiero', icon: 'warehouse', roles: ['admin'] },
       { label: 'Reporte de Ventas', to: '/admin/ventas', icon: 'receipt', roles: ['admin'] },
+      { label: 'Reportes Imprimibles', to: '/admin/reportes', icon: 'document', roles: ['admin'] },
       { label: 'Ranking de Asesores', to: '/admin/ranking', icon: 'trophy', roles: ['admin'] },
       { label: 'Gestión de Usuarios', to: '/admin/usuarios', icon: 'users', roles: ['admin'] },
       { label: 'Auditoría de Empleados', to: '/admin/auditoria', icon: 'shield', roles: ['admin'] }

@@ -3,14 +3,14 @@
   <transition name="fade">
     <div
       v-if="open"
-      class="fixed inset-0 z-40 bg-carbon-950/60 backdrop-blur-[1px] lg:hidden"
+      class="fixed inset-0 z-40 bg-carbon-950/60 backdrop-blur-[1px] lg:hidden print:hidden"
       @click="$emit('close')"
     ></div>
   </transition>
 
   <aside
     :class="[
-      'fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-carbon-900 text-steel-300 transition-transform duration-200 ease-out lg:translate-x-0',
+      'fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-carbon-900 print:hidden text-steel-300 transition-transform duration-200 ease-out lg:translate-x-0',
       open ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
     ]"
     aria-label="Navegación principal"

@@ -3,9 +3,9 @@
   <router-view v-if="layout === 'blank'" />
 
   <!-- Aplicación autenticada: Sidebar fijo + Header limpio -->
-  <div v-else-if="layout === 'app'" class="min-h-screen bg-steel-50">
+  <div v-else-if="layout === 'app'" class="min-h-screen bg-steel-50 print:bg-white">
     <AppSidebar :open="sidebarOpen" @close="sidebarOpen = false" />
-    <div class="flex min-h-screen flex-col lg:pl-64">
+    <div class="flex min-h-screen flex-col lg:pl-64 print:!pl-0">
       <AppHeader @toggle-sidebar="sidebarOpen = !sidebarOpen" />
       <main class="app-main flex-1">
         <router-view />

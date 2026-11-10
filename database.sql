@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS motocicletas (
     descripcion TEXT,
     cilindrada VARCHAR(50),
     tipo VARCHAR(50),
+    color VARCHAR(50) NULL,
     imagen VARCHAR(255),
     imagen_recibo VARCHAR(255) NULL,                        -- recibo/factura de compra (almacenamiento privado)
     stock INT NOT NULL DEFAULT 0,

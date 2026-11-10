@@ -74,6 +74,7 @@ const initializeDatabase = async () => {
         descripcion TEXT,
         cilindrada VARCHAR(50),
         tipo VARCHAR(50),
+        color VARCHAR(50) NULL,
         imagen VARCHAR(255),
         imagen_recibo VARCHAR(255) NULL,
         stock INT NOT NULL DEFAULT 0,
@@ -342,6 +343,10 @@ const ensureMotocicletaFinancialColumns = async (connection) => {
 
   if (!fieldNames.has('precio_venta_credito')) {
     await connection.execute('ALTER TABLE motocicletas ADD COLUMN precio_venta_credito DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER precio_venta_contado');
+  }
+
+  if (!fieldNames.has('color')) {
+    await connection.execute('ALTER TABLE motocicletas ADD COLUMN color VARCHAR(50) NULL AFTER tipo');
   }
 
   if (!fieldNames.has('imagen_recibo')) {
@@ -1118,7 +1123,7 @@ const crearUsuarioAdmin = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await connection.execute(
       'INSERT INTO usuarios (email, password, nombre, telefono, role) VALUES (?, ?, ?, ?, ?)',
-      [email, hashedPassword, nombre, telefono, normalizedRole]
+      [email, hashedPassword, nombre, telefono || null, normalizedRole]
     );
 
     res.json({
@@ -1272,7 +1277,7 @@ const optionalAuth = (req, res, next) => {
 };
 
 const columnasMotocicleta = (yearColumn) => `id, marca, modelo, ${yearColumn} AS año, precio, costo_compra,
-  precio_venta, precio_venta_contado, precio_venta_credito, descripcion, cilindrada, tipo, imagen,
+  precio_venta, precio_venta_contado, precio_venta_credito, descripcion, cilindrada, tipo, color, imagen,
   imagen_recibo, stock, activa, created_at, updated_at`;
 
 const serializarMotocicleta = (moto, user) => {
@@ -1292,11 +1297,23 @@ const serializarMotocicleta = (moto, user) => {
     tiene_recibo: Boolean(imagenRecibo)
   };
 
-  // El costo de adquisición solo lo ve el administrador
+  // RBAC: costo de adquisición, inversión y margen SOLO para el administrador.
+  // Para cualquier otro rol (asesor, empleado, cliente o visitante) los campos
+  // ni siquiera viajan en la respuesta, así no pueden verse desde DevTools.
   if (user?.role === 'admin') {
-    resultado.costo_compra = Number(costoCompra || 0);
+    const costo = Number(costoCompra || 0);
+    resultado.costo_compra = costo;
+    resultado.inversion_stock = redondear2(costo * stock);
+    resultado.ganancia_potencial = redondear2((contado - costo) * stock);
   }
   return resultado;
+};
+
+// La respuesta cambia según quién la pide: evita que un proxy o el navegador
+// sirvan la versión del admin (con costos) a otro usuario.
+const respuestaPorRol = (res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Authorization');
 };
 
 // GET /api/motocicletas?marca=Honda&tipo=Chopper
@@ -1322,6 +1339,7 @@ app.get('/api/motocicletas', optionalAuth, async (req, res) => {
     query += ' ORDER BY created_at DESC';
 
     const [motocicletas] = await connection.execute(query, params);
+    respuestaPorRol(res);
     res.json(motocicletas.map((moto) => serializarMotocicleta(moto, req.user)));
   } catch (error) {
     console.error('Error obteniendo motocicletas:', error);
@@ -1366,44 +1384,195 @@ app.get('/api/inventario/financiero', authenticateToken, requireAdmin, async (re
   }
 });
 
+// ==================== REPORTES CON RANGO DE FECHAS ====================
+// Todos los reportes aceptan ?fecha_inicio=YYYY-MM-DD&fecha_fin=YYYY-MM-DD (ambos opcionales).
+// El fin es inclusivo: se compara con "< fin + 1 día" para cubrir todo ese día.
+
+const FORMATO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+const esFechaReal = (valor) => {
+  if (!FORMATO_FECHA.test(valor)) return false;
+  const [anio, mes, dia] = valor.split('-').map(Number);
+  const fecha = new Date(Date.UTC(anio, mes - 1, dia));
+  return fecha.getUTCFullYear() === anio && fecha.getUTCMonth() === mes - 1 && fecha.getUTCDate() === dia;
+};
+
+/** Lee y valida el rango; lanza un error HTTP 400 si es inválido. */
+const leerRangoFechas = (query) => {
+  const inicio = String(query.fecha_inicio || '').trim() || null;
+  const fin = String(query.fecha_fin || '').trim() || null;
+  if (inicio && !esFechaReal(inicio)) throw crearErrorHttp(400, 'fecha_inicio no es una fecha válida (formato YYYY-MM-DD)');
+  if (fin && !esFechaReal(fin)) throw crearErrorHttp(400, 'fecha_fin no es una fecha válida (formato YYYY-MM-DD)');
+  if (inicio && fin && inicio > fin) throw crearErrorHttp(400, 'La fecha de inicio no puede ser posterior a la fecha de fin');
+  return { fechaInicio: inicio, fechaFin: fin };
+};
+
+/** Condición SQL + parámetros para filtrar una columna de fecha por el rango. */
+const filtroRango = (columna, { fechaInicio, fechaFin }) => {
+  const condiciones = [];
+  const params = [];
+  if (fechaInicio) {
+    condiciones.push(`${columna} >= ?`);
+    params.push(fechaInicio);
+  }
+  if (fechaFin) {
+    condiciones.push(`${columna} < DATE_ADD(?, INTERVAL 1 DAY)`);
+    params.push(fechaFin);
+  }
+  return { sql: condiciones.length ? condiciones.join(' AND ') : '1 = 1', params };
+};
+
+const responderErrorReporte = (res, error, contexto) => {
+  if (!error.status) console.error(`Error generando reporte ${contexto}:`, error);
+  res.status(error.status || 500).json({ message: error.status ? error.message : 'Error interno del servidor' });
+};
+
+// GET /api/reportes/financieros?fecha_inicio=&fecha_fin=
+// - inventario: foto ACTUAL del stock (el stock no tiene historial, no depende del rango).
+// - periodo: movimientos de dinero dentro del rango (compras, ventas y cobros).
 app.get('/api/reportes/financieros', authenticateToken, requireAdmin, async (req, res) => {
   let connection;
   try {
+    const rango = leerRangoFechas(req.query);
     connection = await mysql.createConnection(dbConfig);
 
-    const [rows] = await connection.execute(`
+    const [[inventario]] = await connection.execute(`
       SELECT
-        COALESCE(SUM(CASE WHEN activa = 1 THEN costo_compra * stock ELSE 0 END), 0) AS inversion_total_stock,
-        COALESCE(SUM(CASE WHEN activa = 1 THEN precio_venta * stock ELSE 0 END), 0) AS valor_total_proyectado_venta,
-        COALESCE(SUM(CASE WHEN activa = 1 THEN (precio_venta - costo_compra) * stock ELSE 0 END), 0) AS ganancia_potencial_estimada,
-        (
-          SELECT COALESCE(SUM(total), 0)
-          FROM ventas
-        ) AS capital_retornado_ventas_totales
+        COALESCE(SUM(costo_compra * stock), 0) AS inversion_total_stock,
+        COALESCE(SUM(COALESCE(NULLIF(precio_venta_contado, 0), precio_venta) * stock), 0) AS valor_total_proyectado_venta,
+        COALESCE(SUM((COALESCE(NULLIF(precio_venta_contado, 0), precio_venta) - costo_compra) * stock), 0) AS ganancia_potencial_estimada,
+        COALESCE(SUM(stock), 0) AS unidades_en_stock,
+        COUNT(*) AS modelos_activos
       FROM motocicletas
       WHERE activa = 1
     `);
 
-    const data = rows[0] || {};
-    const inversionTotalStock = Number(data.inversion_total_stock || 0);
-    const valorTotalProyectadoVenta = Number(data.valor_total_proyectado_venta || 0);
-    const gananciaPotencialEstimada = Number(data.ganancia_potencial_estimada || 0);
-    const capitalRetornadoVentasTotales = Number(data.capital_retornado_ventas_totales || 0);
+    const fCompras = filtroRango('created_at', rango);
+    const [[compras]] = await connection.execute(
+      `SELECT COUNT(*) AS operaciones, COALESCE(SUM(cantidad_comprada), 0) AS unidades, COALESCE(SUM(monto_total), 0) AS monto
+       FROM compras WHERE ${fCompras.sql}`,
+      fCompras.params
+    );
+
+    const fVentas = filtroRango('created_at', rango);
+    const [[contado]] = await connection.execute(
+      `SELECT COUNT(*) AS operaciones, COALESCE(SUM(cantidad), 0) AS unidades, COALESCE(SUM(total), 0) AS monto
+       FROM ventas WHERE ${fVentas.sql}`,
+      fVentas.params
+    );
+
+    // Venta a crédito = entrega de la moto (fecha_aprobacion). Se cobra la cuota inicial en ese momento.
+    const fCredito = filtroRango('fecha_aprobacion', rango);
+    const [[credito]] = await connection.execute(
+      `SELECT COUNT(*) AS operaciones,
+              COALESCE(SUM(monto_solicitado), 0) AS monto,
+              COALESCE(SUM(cuota_inicial), 0) AS cuotas_iniciales
+       FROM solicitudes_credito
+       WHERE estado IN ('aprobada', 'completado') AND ${fCredito.sql}`,
+      fCredito.params
+    );
+
+    const fCobros = filtroRango('fecha_pago', rango);
+    const [[cobros]] = await connection.execute(
+      `SELECT COUNT(*) AS pagos, COALESCE(SUM(monto_pagado), 0) AS monto FROM pagos_cuotas WHERE ${fCobros.sql}`,
+      fCobros.params
+    );
+
+    const inversionTotalStock = redondear2(inventario.inversion_total_stock);
+    const valorTotalProyectadoVenta = redondear2(inventario.valor_total_proyectado_venta);
+    const gananciaPotencialEstimada = redondear2(inventario.ganancia_potencial_estimada);
+
+    const ventasContado = redondear2(contado.monto);
+    const cuotasIniciales = redondear2(credito.cuotas_iniciales);
+    const cobrosCuotas = redondear2(cobros.monto);
+    const capitalInvertidoPeriodo = redondear2(compras.monto);
+    // Dinero que efectivamente ingresó en el periodo
+    const capitalRetornado = redondear2(ventasContado + cuotasIniciales + cobrosCuotas);
 
     res.json({
+      filtros: { fecha_inicio: rango.fechaInicio, fecha_fin: rango.fechaFin },
+      generado_en: new Date().toISOString(),
+
+      // Claves anteriores (PanelFinanciero): foto del inventario + capital retornado
       inversion_total_stock: inversionTotalStock,
       valor_total_proyectado_venta: valorTotalProyectadoVenta,
       ganancia_potencial_estimada: gananciaPotencialEstimada,
-      capital_retornado_ventas_totales: capitalRetornadoVentasTotales,
-      diferencia_entre_valor_y_inversion: valorTotalProyectadoVenta - inversionTotalStock,
-      margen_porcentaje_promedio: inversionTotalStock > 0 ? ((gananciaPotencialEstimada / inversionTotalStock) * 100) : 0
+      capital_retornado_ventas_totales: ventasContado,
+      diferencia_entre_valor_y_inversion: redondear2(valorTotalProyectadoVenta - inversionTotalStock),
+      margen_porcentaje_promedio: inversionTotalStock > 0 ? redondear2((gananciaPotencialEstimada / inversionTotalStock) * 100) : 0,
+
+      inventario: {
+        inversion_total_stock: inversionTotalStock,
+        valor_total_proyectado_venta: valorTotalProyectadoVenta,
+        ganancia_potencial_estimada: gananciaPotencialEstimada,
+        unidades_en_stock: Number(inventario.unidades_en_stock),
+        modelos_activos: Number(inventario.modelos_activos)
+      },
+      periodo: {
+        capital_invertido: capitalInvertidoPeriodo,
+        compras_operaciones: Number(compras.operaciones),
+        compras_unidades: Number(compras.unidades),
+        ventas_contado: ventasContado,
+        ventas_contado_operaciones: Number(contado.operaciones),
+        ventas_credito: redondear2(credito.monto),
+        ventas_credito_operaciones: Number(credito.operaciones),
+        cuotas_iniciales: cuotasIniciales,
+        cobros_cuotas: cobrosCuotas,
+        cobros_cuotas_operaciones: Number(cobros.pagos),
+        capital_retornado: capitalRetornado,
+        flujo_neto: redondear2(capitalRetornado - capitalInvertidoPeriodo)
+      }
     });
   } catch (error) {
-    console.error('Error obteniendo reporte financiero:', error);
-    if (connection) {
-      await connection.end().catch(() => {});
-    }
-    res.status(500).json({ message: 'Error interno del servidor' });
+    responderErrorReporte(res, error, 'financiero');
+  } finally {
+    if (connection) await connection.end().catch(() => {});
+  }
+});
+
+// GET /api/reportes/compras?fecha_inicio=&fecha_fin=
+app.get('/api/reportes/compras', authenticateToken, requireAdmin, async (req, res) => {
+  let connection;
+  try {
+    const rango = leerRangoFechas(req.query);
+    const filtro = filtroRango('c.created_at', rango);
+    connection = await mysql.createConnection(dbConfig);
+    const [rows] = await connection.execute(
+      `SELECT c.id, c.created_at AS fecha, c.motocicleta_id, m.marca, m.modelo, m.tipo,
+              c.cantidad_comprada, c.costo_unitario_compra, c.monto_total,
+              u.nombre AS registrado_por
+       FROM compras c
+       INNER JOIN motocicletas m ON m.id = c.motocicleta_id
+       LEFT JOIN usuarios u ON u.id = c.usuario_id
+       WHERE ${filtro.sql}
+       ORDER BY c.created_at DESC, c.id DESC`,
+      filtro.params
+    );
+
+    const compras = rows.map((row) => ({
+      ...row,
+      cantidad_comprada: Number(row.cantidad_comprada),
+      costo_unitario_compra: redondear2(row.costo_unitario_compra),
+      monto_total: redondear2(row.monto_total)
+    }));
+    const unidades = compras.reduce((t, c) => t + c.cantidad_comprada, 0);
+    const montoTotal = redondear2(compras.reduce((t, c) => t + c.monto_total, 0));
+
+    res.json({
+      filtros: { fecha_inicio: rango.fechaInicio, fecha_fin: rango.fechaFin },
+      generado_en: new Date().toISOString(),
+      resumen: {
+        operaciones: compras.length,
+        unidades,
+        monto_total: montoTotal,
+        costo_promedio_unidad: unidades ? redondear2(montoTotal / unidades) : 0
+      },
+      compras
+    });
+  } catch (error) {
+    responderErrorReporte(res, error, 'de compras');
+  } finally {
+    if (connection) await connection.end().catch(() => {});
   }
 });
 
@@ -1872,59 +2041,63 @@ const resumirVentas = (ventas) => {
   };
 };
 
+/**
+ * Ventas unificadas (contado + crédito) con filtros opcionales.
+ * Compartida por /api/ventas/reporte (vista Reporte de Ventas) y /api/reportes/ventas (imprimible).
+ */
+const consultarVentasUnificadas = async (connection, { tipo = 'todas', asesorId = null, fechaInicio = null, fechaFin = null }) => {
+  const ramas = [];
+  if (tipo !== 'credito') ramas.push(SQL_VENTAS_CONTADO);
+  if (tipo !== 'contado') ramas.push(sqlVentasCredito());
+
+  const condiciones = [];
+  const params = [];
+  if (Number.isInteger(asesorId) && asesorId > 0) {
+    condiciones.push('t.asesor_id = ?');
+    params.push(asesorId);
+  }
+  const rango = filtroRango('t.fecha', { fechaInicio, fechaFin });
+  condiciones.push(rango.sql);
+  params.push(...rango.params);
+
+  const [rows] = await connection.execute(`
+    SELECT * FROM (${ramas.join(' UNION ALL ')}) t
+    WHERE ${condiciones.join(' AND ')}
+    ORDER BY t.fecha DESC, t.tipo_venta, t.referencia_id DESC
+  `, params);
+
+  return rows.map((row) => ({
+    ...row,
+    id: `${row.tipo_venta === 'contado' ? 'V' : 'C'}-${row.referencia_id}`,
+    cantidad: Number(row.cantidad || 0),
+    precio_unitario: redondear2(row.precio_unitario),
+    monto_venta: redondear2(row.monto_venta),
+    total: redondear2(row.monto_venta),
+    monto_cobrado: redondear2(row.monto_cobrado),
+    saldo_pendiente: redondear2(row.saldo_pendiente),
+    cuota_inicial: row.cuota_inicial == null ? null : redondear2(row.cuota_inicial),
+    monto_financiado: row.monto_financiado == null ? null : redondear2(row.monto_financiado),
+    plazo: row.plazo == null ? null : Number(row.plazo),
+    cuotas_vencidas: row.cuotas_vencidas == null ? null : Number(row.cuotas_vencidas),
+    created_at: row.fecha
+  }));
+};
+
+const leerTipoVenta = (valor) => {
+  const tipo = String(valor || '').toLowerCase();
+  return TIPOS_VENTA.includes(tipo) ? tipo : 'todas';
+};
+
 // GET /api/ventas/reporte?tipo=todas|contado|credito&asesor_id=&fecha_inicio=&fecha_fin=
 app.get('/api/ventas/reporte', authenticateToken, requireAdmin, async (req, res) => {
   let connection;
   try {
-    const tipo = TIPOS_VENTA.includes(String(req.query.tipo || '').toLowerCase())
-      ? String(req.query.tipo).toLowerCase()
-      : 'todas';
+    const tipo = leerTipoVenta(req.query.tipo);
     const asesorId = Number.parseInt(req.query.asesor_id, 10);
-    const fechaValida = (valor) => (/^\d{4}-\d{2}-\d{2}$/.test(String(valor || '')) ? String(valor) : null);
-    const fechaInicio = fechaValida(req.query.fecha_inicio);
-    const fechaFin = fechaValida(req.query.fecha_fin);
-
-    const ramas = [];
-    if (tipo !== 'credito') ramas.push(SQL_VENTAS_CONTADO);
-    if (tipo !== 'contado') ramas.push(sqlVentasCredito());
-
-    const condiciones = [];
-    const params = [];
-    if (Number.isInteger(asesorId) && asesorId > 0) {
-      condiciones.push('t.asesor_id = ?');
-      params.push(asesorId);
-    }
-    if (fechaInicio) {
-      condiciones.push('t.fecha >= ?');
-      params.push(fechaInicio);
-    }
-    if (fechaFin) {
-      condiciones.push('t.fecha < DATE_ADD(?, INTERVAL 1 DAY)');
-      params.push(fechaFin);
-    }
+    const { fechaInicio, fechaFin } = leerRangoFechas(req.query);
 
     connection = await mysql.createConnection(dbConfig);
-    const [rows] = await connection.execute(`
-      SELECT * FROM (${ramas.join(' UNION ALL ')}) t
-      ${condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : ''}
-      ORDER BY t.fecha DESC, t.tipo_venta, t.referencia_id DESC
-    `, params);
-
-    const ventas = rows.map((row) => ({
-      ...row,
-      id: `${row.tipo_venta === 'contado' ? 'V' : 'C'}-${row.referencia_id}`,
-      cantidad: Number(row.cantidad || 0),
-      precio_unitario: redondear2(row.precio_unitario),
-      monto_venta: redondear2(row.monto_venta),
-      total: redondear2(row.monto_venta),
-      monto_cobrado: redondear2(row.monto_cobrado),
-      saldo_pendiente: redondear2(row.saldo_pendiente),
-      cuota_inicial: row.cuota_inicial == null ? null : redondear2(row.cuota_inicial),
-      monto_financiado: row.monto_financiado == null ? null : redondear2(row.monto_financiado),
-      plazo: row.plazo == null ? null : Number(row.plazo),
-      cuotas_vencidas: row.cuotas_vencidas == null ? null : Number(row.cuotas_vencidas),
-      created_at: row.fecha
-    }));
+    const ventas = await consultarVentasUnificadas(connection, { tipo, asesorId, fechaInicio, fechaFin });
 
     const resumenes = resumirVentas(ventas);
     res.json({
@@ -1939,8 +2112,48 @@ app.get('/api/ventas/reporte', authenticateToken, requireAdmin, async (req, res)
       ventas
     });
   } catch (error) {
-    console.error('Error generando reporte de ventas:', error);
-    res.status(500).json({ message: 'Error interno del servidor' });
+    responderErrorReporte(res, error, 'de ventas');
+  } finally {
+    if (connection) await connection.end().catch(() => {});
+  }
+});
+
+// GET /api/reportes/ventas?fecha_inicio=&fecha_fin=&tipo=
+// Listado consolidado (contado + crédito) con totales por tipo y por asesor responsable.
+app.get('/api/reportes/ventas', authenticateToken, requireAdmin, async (req, res) => {
+  let connection;
+  try {
+    const tipo = leerTipoVenta(req.query.tipo);
+    const { fechaInicio, fechaFin } = leerRangoFechas(req.query);
+
+    connection = await mysql.createConnection(dbConfig);
+    const ventas = await consultarVentasUnificadas(connection, { tipo, fechaInicio, fechaFin });
+
+    const porAsesor = new Map();
+    for (const venta of ventas) {
+      const clave = venta.asesor_id ?? 0;
+      const fila = porAsesor.get(clave) || {
+        asesor_id: venta.asesor_id ?? null,
+        nombre_asesor: venta.nombre_asesor || 'Sin asesor asignado',
+        operaciones: 0,
+        unidades: 0,
+        monto: 0
+      };
+      fila.operaciones += 1;
+      fila.unidades += venta.cantidad;
+      fila.monto = redondear2(fila.monto + venta.monto_venta);
+      porAsesor.set(clave, fila);
+    }
+
+    res.json({
+      filtros: { tipo, fecha_inicio: fechaInicio, fecha_fin: fechaFin },
+      generado_en: new Date().toISOString(),
+      resumen: resumirVentas(ventas),
+      por_asesor: [...porAsesor.values()].sort((a, b) => b.monto - a.monto),
+      ventas
+    });
+  } catch (error) {
+    responderErrorReporte(res, error, 'de ventas');
   } finally {
     if (connection) await connection.end().catch(() => {});
   }
@@ -1984,6 +2197,7 @@ app.get('/api/motocicletas/:id', optionalAuth, async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ message: 'Motocicleta no encontrada' });
     }
+    respuestaPorRol(res);
     res.json(serializarMotocicleta(rows[0], req.user));
   } catch (error) {
     console.error('Error obteniendo motocicleta:', error);
@@ -2087,6 +2301,7 @@ const leerDatosMotocicleta = (body, existente = {}) => {
     descripcion: texto(campo('descripcion') ?? existente.descripcion) || null,
     cilindrada: texto(campo('cilindrada') ?? existente.cilindrada) || null,
     tipo: texto(campo('tipo') ?? existente.tipo) || null,
+    color: texto(campo('color') ?? existente.color) || null,
     advertencias,
     margenDinero: redondear2(precioContado - costoCompra),
     margenPorcentaje: redondear2(((precioContado - costoCompra) / costoCompra) * 100)
@@ -2116,12 +2331,12 @@ app.post('/api/motocicletas', authenticateToken, requireAdmin, subirArchivosMoto
     const [result] = await connection.execute(
       `INSERT INTO motocicletas
         (marca, modelo, ${yearColumn}, precio, costo_compra, precio_venta, precio_venta_contado,
-         precio_venta_credito, descripcion, cilindrada, tipo, imagen, imagen_recibo, stock, activa)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+         precio_venta_credito, descripcion, cilindrada, tipo, color, imagen, imagen_recibo, stock, activa)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         datos.marca, datos.modelo, datos.anio,
         datos.precioContado, datos.costoCompra, datos.precioContado, datos.precioContado,
-        datos.precioCredito, datos.descripcion, datos.cilindrada, datos.tipo,
+        datos.precioCredito, datos.descripcion, datos.cilindrada, datos.tipo, datos.color,
         imagen ? `/uploads/${imagen.filename}` : null,
         recibo.filename,
         datos.stock
@@ -2173,11 +2388,11 @@ app.put('/api/motocicletas/:id', authenticateToken, requireStaff, subirArchivosM
 
     const sets = [
       'marca = ?', 'modelo = ?', `${yearColumn} = ?`, 'precio = ?', 'costo_compra = ?', 'precio_venta = ?',
-      'precio_venta_contado = ?', 'precio_venta_credito = ?', 'descripcion = ?', 'cilindrada = ?', 'tipo = ?', 'stock = ?'
+      'precio_venta_contado = ?', 'precio_venta_credito = ?', 'descripcion = ?', 'cilindrada = ?', 'tipo = ?', 'color = ?', 'stock = ?'
     ];
     const params = [
       datos.marca, datos.modelo, datos.anio, datos.precioContado, datos.costoCompra, datos.precioContado,
-      datos.precioContado, datos.precioCredito, datos.descripcion, datos.cilindrada, datos.tipo, datos.stock
+      datos.precioContado, datos.precioCredito, datos.descripcion, datos.cilindrada, datos.tipo, datos.color, datos.stock
     ];
     if (imagen) {
       sets.push('imagen = ?');

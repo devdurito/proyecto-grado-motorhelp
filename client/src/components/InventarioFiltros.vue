@@ -6,7 +6,7 @@
         <input
           type="search"
           :value="modelValue.busqueda"
-          placeholder="Modelo, cilindrada, año…"
+          placeholder="Modelo, cilindrada, color, año…"
           @input="actualizar('busqueda', $event.target.value)"
         />
       </label>

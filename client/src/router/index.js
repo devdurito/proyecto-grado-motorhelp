@@ -79,6 +79,12 @@ const routes = [
     meta: { requiresAuth: true, requiresAdmin: true, title: 'Reporte de Ventas', section: 'Administración' }
   },
   {
+    path: '/admin/reportes',
+    name: 'AdminReportes',
+    component: () => import('../views/AdminReportes.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Reportes Imprimibles', section: 'Administración' }
+  },
+  {
     path: '/admin/ranking',
     name: 'AdminRanking',
     component: () => import('../views/AdminRanking.vue'),
