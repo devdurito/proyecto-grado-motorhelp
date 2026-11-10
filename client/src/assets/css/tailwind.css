@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Preflight está desactivado: mínimo necesario para los controles de formulario */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  /*
+   * Reset de bordes estilo preflight, pero solo para elementos que usan utilidades de
+   * borde o clases del sistema `mh-*`. :where() deja la especificidad en 0, así que
+   * cualquier regla de las vistas heredadas (p. ej. `.form-input { border: … }`) sigue mandando.
+   */
+  :where([class*='border'], [class*='mh-'], [class*='divide-'] > *) {
+    border-width: 0;
+    border-style: solid;
+    border-color: theme('colors.steel.200');
+  }
+}
+
+/*
+ * Sistema de diseño MOTORHELP — estilo industrial / corporativo.
+ * Clases `mh-*` reutilizables para que todas las vistas compartan la misma
+ * jerarquía de cards, KPIs, tablas, badges, botones y formularios.
+ */
+@layer components {
+  /* ---------- Página ---------- */
+  .mh-page {
+    @apply mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8;
+  }
+  .mh-page-header {
+    @apply mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between;
+  }
+  .mh-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-brand-600;
+  }
+  .mh-title {
+    @apply m-0 text-2xl font-bold tracking-tight text-carbon-900;
+  }
+  .mh-subtitle {
+    @apply m-0 mt-1 text-sm text-steel-500;
+  }
+
+  /* ---------- Cards ---------- */
+  .mh-card {
+    @apply rounded-xl border border-steel-200 bg-white shadow-card;
+  }
+  .mh-card-header {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-steel-100 px-5 py-4;
+  }
+  .mh-card-title {
+    @apply m-0 text-base font-semibold text-carbon-900;
+  }
+  .mh-card-subtitle {
+    @apply m-0 text-xs text-steel-500;
+  }
+  .mh-card-body {
+    @apply p-5;
+  }
+
+  /* ---------- KPIs ---------- */
+  .mh-kpi-grid {
+    @apply grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4;
+  }
+  .mh-kpi {
+    @apply relative overflow-hidden rounded-xl border border-steel-200 bg-white p-5 shadow-card;
+  }
+  .mh-kpi::before {
+    content: '';
+    @apply absolute inset-y-0 left-0 w-1 bg-steel-300;
+  }
+  .mh-kpi--brand::before { @apply bg-brand-500; }
+  .mh-kpi--success::before { @apply bg-success-500; }
+  .mh-kpi--warning::before { @apply bg-warning-500; }
+  .mh-kpi--danger::before { @apply bg-danger-500; }
+  .mh-kpi-label {
+    @apply m-0 text-xs font-semibold uppercase tracking-wider text-steel-500;
+  }
+  .mh-kpi-value {
+    @apply m-0 mt-2 text-3xl font-bold tabular-nums leading-none text-carbon-900;
+  }
+  .mh-kpi-meta {
+    @apply m-0 mt-2 text-xs text-steel-500;
+  }
+
+  /* ---------- Tablas ---------- */
+  .mh-table-wrap {
+    @apply overflow-x-auto rounded-xl border border-steel-200 bg-white shadow-card;
+  }
+  .mh-table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .mh-table thead th {
+    @apply whitespace-nowrap bg-carbon-900 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-steel-200;
+  }
+  .mh-table tbody td {
+    @apply border-b border-steel-100 px-4 py-3 align-middle text-steel-700;
+  }
+  .mh-table tbody tr {
+    @apply transition-colors;
+  }
+  .mh-table tbody tr:hover {
+    @apply bg-steel-50;
+  }
+  .mh-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .mh-table .num {
+    @apply text-right tabular-nums;
+  }
+  .mh-table-empty {
+    @apply px-4 py-10 text-center text-sm text-steel-500;
+  }
+
+  /* ---------- Badges ---------- */
+  .mh-badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset;
+  }
+  .mh-badge-neutral { @apply bg-steel-50 text-steel-600 ring-steel-200; }
+  .mh-badge-brand { @apply bg-brand-50 text-brand-700 ring-brand-200; }
+  .mh-badge-success { @apply bg-success-50 text-success-700 ring-green-200; }
+  .mh-badge-warning { @apply bg-warning-50 text-warning-700 ring-amber-200; }
+  .mh-badge-danger { @apply bg-danger-50 text-danger-700 ring-red-200; }
+  .mh-badge-dark { @apply bg-carbon-800 text-white ring-carbon-800; }
+
+  /* ---------- Botones ---------- */
+  .mh-btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-transparent px-4 py-2 text-sm font-semibold no-underline transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .mh-btn-primary { @apply bg-brand-500 text-white shadow-sm hover:bg-brand-600; }
+  .mh-btn-secondary { @apply border-steel-300 bg-white text-carbon-800 shadow-sm hover:bg-steel-50; }
+  .mh-btn-dark { @apply bg-carbon-900 text-white hover:bg-carbon-800; }
+  .mh-btn-ghost { @apply bg-transparent text-steel-600 hover:bg-steel-100 hover:text-carbon-900; }
+  .mh-btn-danger { @apply bg-danger-500 text-white hover:bg-danger-700; }
+  .mh-btn-sm { @apply px-3 py-1.5 text-xs; }
+
+  /* ---------- Formularios ---------- */
+  .mh-label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wider text-steel-600;
+  }
+  .mh-input {
+    @apply block w-full rounded-lg border border-steel-300 bg-white px-3 py-2 text-sm text-carbon-900 shadow-sm transition placeholder:text-steel-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100;
+  }
+
+  /* ---------- Estados ---------- */
+  .mh-alert-error {
+    @apply rounded-lg border border-red-200 bg-danger-50 px-4 py-3 text-sm text-danger-700;
+  }
+}

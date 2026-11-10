@@ -81,6 +81,7 @@ client/build/
 # Uploads
 public/uploads/*
 !public/uploads/.gitkeep
+uploads_privados/
 
 # OS generated files
 .DS_Store

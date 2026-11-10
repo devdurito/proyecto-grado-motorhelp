@@ -190,7 +190,10 @@ export default {
 
 <style scoped>
 .hero {
-  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--secondary-blue) 100%);
+  background:
+    radial-gradient(circle at 85% 15%, rgba(1, 86, 213, 0.22), transparent 45%),
+    repeating-linear-gradient(45deg, transparent 0 14px, rgba(255, 255, 255, 0.025) 14px 28px),
+    linear-gradient(160deg, #0A1B3D 0%, #11285A 100%);
   color: var(--white);
   padding: 6rem 0;
   text-align: center;
@@ -271,7 +274,7 @@ export default {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(30, 34, 41, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -283,7 +286,7 @@ export default {
   width: min(980px, 100%);
   background: white;
   border-radius: 1.2rem;
-  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 30px 70px rgba(30, 34, 41, 0.25);
   overflow: hidden;
 }
 
@@ -292,7 +295,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  border-bottom: 1px solid rgba(30, 34, 41, 0.08);
 }
 
 .modal-header h2 {
@@ -341,7 +344,7 @@ export default {
 
 .info-item {
   background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
-  border: 1px solid rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(1, 86, 213, 0.08);
   padding: 0.9rem 1rem;
   border-radius: 0.9rem;
 }

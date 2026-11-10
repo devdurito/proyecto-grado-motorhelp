@@ -186,14 +186,14 @@ export default {
       this.$router.push({
         name: 'Calculadora',
         params: { id: String(motocicleta.id) },
-        query: { monto: motocicleta.precio, motocicletaId: motocicleta.id }
+        query: { monto: motocicleta.precio_venta_credito || motocicleta.precio, motocicletaId: motocicleta.id }
       })
     },
     solicitarCredito(motocicleta) {
       this.$router.push({
         name: 'Calculadora',
         params: { id: String(motocicleta.id) },
-        query: { monto: motocicleta.precio, motocicletaId: motocicleta.id }
+        query: { monto: motocicleta.precio_venta_credito || motocicleta.precio, motocicletaId: motocicleta.id }
       })
     },  
     formatPrice(price) {

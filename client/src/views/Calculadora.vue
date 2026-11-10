@@ -16,7 +16,7 @@
                 <select v-model="motocicletaId" class="form-input" @change="onMotocicletaSeleccionada" required>
                   <option value="">Selecciona una moto del stock</option>
                   <option v-for="motocicleta in motocicletasDisponibles" :key="motocicleta.id" :value="motocicleta.id">
-                    {{ motocicleta.marca }} {{ motocicleta.modelo }} - Stock: {{ Number(motocicleta.stock || 0) }} - {{ formatPrice(Number(motocicleta.precio || 0)) }}
+                    {{ motocicleta.marca }} {{ motocicleta.modelo }} - Stock: {{ Number(motocicleta.stock || 0) }} - {{ formatPrice(Number(motocicleta.precio_venta_credito || motocicleta.precio || 0)) }}
                   </option>
                 </select>
                 <small v-if="!motocicletaId || !motocicletasDisponibles.length" class="form-hint error-text">
@@ -30,7 +30,7 @@
                   <div v-if="motocicletaSeleccionada">
                     <strong>{{ motocicletaSeleccionada.marca }} {{ motocicletaSeleccionada.modelo }}</strong>
                     <div class="selected-bike-meta">Stock: {{ Number(motocicletaSeleccionada.stock || 0) }}</div>
-                    <div class="selected-bike-meta">Precio: {{ formatPrice(Number(motocicletaSeleccionada.precio || 0)) }}</div>
+                    <div class="selected-bike-meta">Precio a crédito: {{ formatPrice(Number(motocicletaSeleccionada.precio_venta_credito || motocicletaSeleccionada.precio || 0)) }}</div>
                   </div>
                   <div v-else class="selected-bike-empty">Selecciona una moto para continuar</div>
                 </div>
@@ -223,6 +223,15 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 })
 
+// La calculadora es exclusiva para usuarios autenticados: todas sus llamadas llevan el token.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = 'Bearer ' + token
+  }
+  return config
+})
+
 export default {
   name: 'Calculadora',
   data() {
@@ -253,7 +262,7 @@ export default {
       this.motocicletaId = Number(routeId)
       const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(routeId))
       if (motoSeleccionada) {
-        this.formData.monto = Number(motoSeleccionada.precio || 0)
+        this.formData.monto = Number(motoSeleccionada.precio_venta_credito || motoSeleccionada.precio || 0)
       }
     }
 
@@ -281,7 +290,7 @@ export default {
       if (this.motocicletaId) {
         const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(this.motocicletaId))
         if (motoSeleccionada) {
-          this.formData.monto = Number(motoSeleccionada.precio || this.formData.monto || 0)
+          this.formData.monto = Number(motoSeleccionada.precio_venta_credito || motoSeleccionada.precio || this.formData.monto || 0)
         }
       }
     },
@@ -293,7 +302,7 @@ export default {
       }
       const motoSeleccionada = this.motocicletasDisponibles.find((m) => Number(m.id) === Number(this.motocicletaId))
       if (motoSeleccionada) {
-        this.formData.monto = Number(motoSeleccionada.precio || 0)
+        this.formData.monto = Number(motoSeleccionada.precio_venta_credito || motoSeleccionada.precio || 0)
       }
     },
     async calcularCredito() {
@@ -513,13 +522,13 @@ export default {
 
 .card {
   background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.9));
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(30, 34, 41, 0.08);
   border-radius: 1.25rem;
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 20px 45px rgba(30, 34, 41, 0.08);
 }
 
 .resultado-card {
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94));
+  background: linear-gradient(135deg, rgba(30, 34, 41, 0.96), rgba(30, 41, 59, 0.94));
   color: var(--white);
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
@@ -577,9 +586,9 @@ export default {
 .info-card {
   text-align: center;
   padding: 2rem 1.4rem;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94));
+  background: linear-gradient(180deg, rgba(30, 34, 41, 0.98), rgba(30, 41, 59, 0.94));
   border-radius: 1.2rem;
-  box-shadow: 0 18px 30px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 18px 30px rgba(30, 34, 41, 0.12);
   border: 1px solid rgba(148,163,184,0.15);
 }
 
@@ -595,7 +604,7 @@ export default {
 }
 
 .selected-bike-box {
-  border: 1px solid rgba(37, 99, 235, 0.2);
+  border: 1px solid rgba(1, 86, 213, 0.2);
   background: rgba(239, 246, 255, 0.7);
   border-radius: 0.85rem;
   padding: 1rem;
@@ -641,7 +650,7 @@ export default {
   margin-top: 1.5rem;
   margin-bottom: 1.5rem;
   padding: 1.2rem;
-  border: 1px solid rgba(29, 78, 216, 0.12);
+  border: 1px solid rgba(1, 86, 213, 0.12);
   background: linear-gradient(180deg, rgba(219,234,254,0.38), rgba(255,255,255,0.96));
   border-radius: 1rem;
 }

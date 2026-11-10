@@ -1,221 +1,75 @@
 <template>
-  <nav class="navbar">
-    <div class="container">
-      <div class="navbar-content">
-        <!-- Logo -->
-        <router-link to="/" class="navbar-brand">
-          <div class="logo">
-            <h1>MOTORHELP</h1>
-            <p>Libertad Financiera sobre Ruedas</p>
-          </div>
+  <!-- Navegación pública (visitantes). Con sesión iniciada la app usa el Sidebar. -->
+  <nav class="sticky top-0 z-40 border-b-4 border-brand-500 bg-carbon-900">
+    <div class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <router-link to="/" class="flex items-center gap-3 no-underline">
+        <img :src="logoUrl" alt="MOTORHELP — Libertad Financiera sobre Ruedas" class="block h-11 w-auto rounded-md">
+      </router-link>
+
+      <div class="hidden items-center gap-1 md:flex">
+        <router-link
+          v-for="link in links"
+          :key="link.to"
+          :to="link.to"
+          :class="linkClass(link)"
+        >
+          {{ link.label }}
+          <AppIcon v-if="link.locked" name="shield" size="sm" class="text-steel-500" />
         </router-link>
+      </div>
 
-        <!-- Navigation Links -->
-        <div class="navbar-links" :class="{ 'mobile-open': mobileMenuOpen }">
-          <router-link to="/" class="nav-link">Inicio</router-link>
-          <router-link to="/catalogo" class="nav-link">Catálogo</router-link>
-          <router-link to="/calculadora" class="nav-link">Calculadora</router-link>
-          
-          <!-- Admin/Staff Links -->
-          <template v-if="authStore.isStaff">
-            <router-link to="/admin" class="nav-link admin-link">Admin</router-link>
-            <router-link to="/admin/motocicletas" class="nav-link admin-link">Motocicletas</router-link>
-            <router-link v-if="authStore.isAdmin" to="/admin/inventario-financiero" class="nav-link admin-link">Inventario</router-link>
-            <router-link to="/admin/solicitudes" class="nav-link admin-link">Solicitudes</router-link>
-            <router-link v-if="authStore.isAdmin" to="/admin/usuarios" class="nav-link admin-link">Usuarios</router-link>
-          </template>
-        </div>
-
-        <!-- User Actions -->
-        <div class="navbar-actions">
-          <template v-if="authStore.isAuthenticated">
-            <div class="user-menu">
-              <span class="user-name">{{ authStore.user?.nombre }}</span>
-              <button @click="logout" class="btn btn-secondary">Cerrar Sesión</button>
-            </div>
-          </template>
-          <template v-else>
-            <router-link to="/login" class="btn btn-primary">Iniciar Sesión</router-link>
-          </template>
-        </div>
-
-        <!-- Mobile Menu Button -->
-        <button @click="toggleMobileMenu" class="mobile-menu-btn">
-          <span></span>
-          <span></span>
-          <span></span>
+      <div class="flex items-center gap-2">
+        <router-link to="/register" class="mh-btn mh-btn-ghost hidden !text-steel-200 hover:!bg-carbon-800 hover:!text-white sm:inline-flex">
+          Crear cuenta
+        </router-link>
+        <router-link to="/login" class="mh-btn mh-btn-primary">Iniciar sesión</router-link>
+        <button
+          type="button"
+          class="cursor-pointer rounded-md border-0 bg-transparent p-2 text-steel-300 hover:bg-carbon-800 md:hidden"
+          aria-label="Abrir menú"
+          @click="mobileOpen = !mobileOpen"
+        >
+          <AppIcon :name="mobileOpen ? 'close' : 'menu'" />
         </button>
       </div>
+    </div>
+
+    <div v-if="mobileOpen" class="border-t border-carbon-800 px-4 pb-4 pt-2 md:hidden">
+      <router-link
+        v-for="link in links"
+        :key="link.to"
+        :to="link.to"
+        :class="[linkClass(link), 'flex w-full']"
+        @click="mobileOpen = false"
+      >
+        {{ link.label }}
+        <AppIcon v-if="link.locked" name="shield" size="sm" class="text-steel-500" />
+      </router-link>
     </div>
   </nav>
 </template>
 
-<script>
-import { useAuthStore } from '../stores/auth'
+<script setup>
+import { ref } from 'vue'
+import { useRoute } from 'vue-router'
+import AppIcon from './layout/AppIcon.vue'
+import logoUrl from '../assets/logo-motorhelp.jpeg'
 
-export default {
-  name: 'Navbar',
-  data() {
-    return {
-      mobileMenuOpen: false
-    }
-  },
-  setup() {
-    const authStore = useAuthStore()
-    return { authStore }
-  },
-  methods: {
-    toggleMobileMenu() {
-      this.mobileMenuOpen = !this.mobileMenuOpen
-    },
-    logout() {
-      this.authStore.logout()
-      this.$router.push('/')
-    }
-  }
+const route = useRoute()
+const mobileOpen = ref(false)
+
+const links = [
+  { label: 'Nosotros', to: '/' },
+  { label: 'Catálogo', to: '/catalogo' },
+  // Requiere sesión: el guard del router redirige al login
+  { label: 'Calculadora', to: '/calculadora', locked: true }
+]
+
+function linkClass(link) {
+  const active = link.to === '/' ? route.path === '/' || route.path === '/nosotros' : route.path.startsWith(link.to)
+  return [
+    'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium no-underline transition-colors',
+    active ? 'bg-carbon-800 text-white' : 'text-steel-300 hover:bg-carbon-800/60 hover:text-white'
+  ]
 }
 </script>
-
-<style scoped>
-.navbar {
-  background: var(--white);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-}
-
-.navbar-content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 0;
-}
-
-.navbar-brand {
-  text-decoration: none;
-  color: inherit;
-}
-
-.logo h1 {
-  color: var(--primary-blue);
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.logo p {
-  color: var(--gray-600);
-  font-size: 0.75rem;
-  margin: 0;
-  font-style: italic;
-}
-
-.navbar-links {
-  display: flex;
-  gap: 2rem;
-  align-items: center;
-}
-
-.nav-link {
-  text-decoration: none;
-  color: var(--gray-700);
-  font-weight: 500;
-  transition: color 0.3s ease;
-  position: relative;
-}
-
-.nav-link:hover,
-.nav-link.router-link-active {
-  color: var(--primary-blue);
-}
-
-.nav-link.router-link-active::after {
-  content: '';
-  position: absolute;
-  bottom: -0.5rem;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--primary-blue);
-}
-
-.admin-link {
-  background: var(--light-blue);
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  color: var(--primary-blue) !important;
-}
-
-.navbar-actions {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-}
-
-.user-menu {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.user-name {
-  color: var(--gray-700);
-  font-weight: 500;
-}
-
-.mobile-menu-btn {
-  display: none;
-  flex-direction: column;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0.5rem;
-}
-
-.mobile-menu-btn span {
-  width: 25px;
-  height: 3px;
-  background: var(--gray-700);
-  margin: 3px 0;
-  transition: 0.3s;
-}
-
-@media (max-width: 768px) {
-  .navbar-links {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--white);
-    flex-direction: column;
-    padding: 1rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transform: translateY(-100%);
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s ease;
-  }
-
-  .navbar-links.mobile-open {
-    transform: translateY(0);
-    opacity: 1;
-    visibility: visible;
-  }
-
-  .mobile-menu-btn {
-    display: flex;
-  }
-
-  .navbar-actions {
-    gap: 0.5rem;
-  }
-
-  .btn {
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-  }
-}
-</style>
-
-

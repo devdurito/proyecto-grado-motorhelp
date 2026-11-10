@@ -1,218 +1,184 @@
 <template>
-  <div class="admin-solicitudes">
-    <div class="container">
-      <div class="admin-header">
-        <h1>Gestión de Crédito</h1>
-        <div class="filtros">
-          <select v-model="filtroEstado" @change="aplicarFiltros">
-            <option value="">Todos los estados</option>
-            <option value="pendiente">Pendientes</option>
-            <option value="aprobada">Aprobadas</option>
-            <option value="rechazada">Rechazadas</option>
-          </select>
-        </div>
+  <div class="mh-page">
+    <div class="mh-page-header">
+      <div>
+        <p class="mh-eyebrow">Operación</p>
+        <h2 class="mh-title">Gestión de crédito</h2>
+        <p class="mh-subtitle">Revisa postulaciones, descarga órdenes de compra y controla los pagos de cada crédito.</p>
       </div>
-
-      <div class="view-tabs">
-        <button :class="['tab-btn', { active: vistaActual === 'solicitudes' }]" @click="vistaActual = 'solicitudes'">
-          Solicitudes
-        </button>
-        <button :class="['tab-btn', { active: vistaActual === 'creditos' }]" @click="vistaActual = 'creditos'">
-          Créditos Aprobados
-        </button>
-      </div>
-
-      <div v-if="loading" class="loading">
-        <div class="spinner"></div>
-      </div>
-
-      <div v-else-if="vistaActual === 'solicitudes'">
-        <div v-if="solicitudesPendientes.length === 0" class="no-data">
-          <h3>No hay solicitudes</h3>
-          <p>No se encontraron solicitudes con los filtros aplicados</p>
-        </div>
-
-        <div v-else class="solicitudes-list">
-          <div v-for="solicitud in solicitudesPendientesFiltradas" :key="solicitud.id" class="card solicitud-card">
-            <div class="solicitud-header">
-              <div class="solicitud-info">
-                <h3>{{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}</h3>
-                <p>{{ solicitud.email }}</p>
-                <p>{{ solicitud.telefono_cliente || solicitud.telefono || 'No registrado' }}</p>
-              </div>
-              <div class="solicitud-status">
-                <span :class="`badge badge-${getStatusClass(solicitud.estado)}`">
-                  {{ solicitud.estado.toUpperCase() }}
-                </span>
-              </div>
-            </div>
-
-            <div class="solicitud-details">
-              <div class="detail-group">
-                <h4>Cliente</h4>
-                <p>{{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}</p>
-                <p>CI: {{ solicitud.ci_cliente || 'No registrado' }}</p>
-                <p>Tel: {{ solicitud.telefono_cliente || solicitud.telefono || 'No registrado' }}</p>
-              </div>
-              <div class="detail-group">
-                <h4>Motocicleta</h4>
-                <p>{{ solicitud.marca }} {{ solicitud.modelo }}</p>
-              </div>
-              <div class="detail-group">
-                <h4>Monto Solicitado</h4>
-                <p class="monto">{{ formatPrice(solicitud.monto) }}</p>
-              </div>
-              <div class="detail-group">
-                <h4>Plazo</h4>
-                <p>{{ solicitud.plazo }} meses</p>
-              </div>
-              <div class="detail-group">
-                <h4>Ingresos Mensuales</h4>
-                <p>{{ formatPrice(solicitud.ingresos_mensuales) }}</p>
-              </div>
-            </div>
-
-            <div class="solicitud-address">
-              <h4>Dirección</h4>
-              <p>{{ solicitud.direccion }}</p>
-            </div>
-
-            <div class="solicitud-actions" v-if="isAdmin && solicitud.estado === 'pendiente'">
-              <button @click="aprobarSolicitud(solicitud.id)" class="btn btn-primary">
-                Aprobar
-              </button>
-              <button @click="rechazarSolicitud(solicitud.id)" class="btn btn-danger">
-                Rechazar
-              </button>
-            </div>
-            <div class="solicitud-actions">
-              <button @click="descargarPDF(solicitud.id)" class="btn btn-secondary">
-                Descargar PDF
-              </button>
-              <button v-if="isAdmin && solicitud.estado === 'aprobada'" @click="abrirControlPagos(solicitud)" class="btn btn-secondary">
-                Control de Pagos
-              </button>
-            </div>
-
-            <div class="solicitud-fecha">
-              <small>Solicitado el: {{ formatDate(solicitud.created_at) }}</small>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="approved-section">
-        <div class="section-title-row">
-          <h2>Créditos Aprobados</h2>
-        </div>
-
-        <div v-if="solicitudesAprobadas.length === 0" class="no-data">
-          <p>No hay créditos aprobados todavía.</p>
-        </div>
-
-        <div v-else class="approved-table-wrapper">
-          <table class="approved-table">
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Motocicleta</th>
-                <th>Monto</th>
-                <th>Plazo</th>
-                <th>Cuota</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="credito in solicitudesAprobadas" :key="credito.id">
-                <td>{{ credito.nombre_cliente || credito.usuario_nombre || 'Sin nombre' }}</td>
-                <td>{{ credito.marca }} {{ credito.modelo }}</td>
-                <td>{{ formatPrice(credito.monto) }}</td>
-                <td>{{ credito.plazo }} meses</td>
-                <td>{{ formatPrice(calcularCuotaCredito(credito)) }}</td>
-                <td><span :class="`badge badge-${getStatusClass(credito.estado)}`">{{ credito.estado }}</span></td>
-                <td>
-                  <button @click="abrirControlPagos(credito)" class="btn btn-secondary btn-small">
-                    Ver pagos
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div v-if="vistaActual === 'solicitudes'" class="w-full sm:w-56">
+        <label for="filtro-estado" class="mh-label">Estado</label>
+        <select id="filtro-estado" v-model="filtroEstado" class="mh-input" @change="aplicarFiltros">
+          <option value="">Pendientes</option>
+          <option value="aprobada">Aprobadas</option>
+          <option value="rechazada">Rechazadas</option>
+          <option value="completado">Completados</option>
+        </select>
       </div>
     </div>
 
-    <div v-if="modalPagosVisible" class="modal-backdrop" @click.self="cerrarControlPagos">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Control de Pagos</h3>
-          <button class="btn btn-danger btn-small" @click="cerrarControlPagos">Cerrar</button>
-        </div>
-
-        <div v-if="pagosCredito.length === 0" class="no-data">
-          <p>No hay cuotas registradas para este crédito.</p>
-        </div>
-
-        <div v-else class="payments-table-wrapper">
-          <table class="payments-table">
-            <thead>
-              <tr>
-                <th>Cuota</th>
-                <th>Monto</th>
-                <th>Estado</th>
-                <th>Comprobante</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="pago in pagosCredito" :key="pago.id || pago.numero_cuota">
-                <td>{{ pago.numero_cuota }}</td>
-                <td>{{ formatPrice(pago.monto) }}</td>
-                <td>{{ pago.estado || 'pendiente' }}</td>
-                <td>
-                  <div class="comprobante-cell">
-                    <template v-if="pago.comprobante_url">
-                      <a :href="`http://localhost:5000${pago.comprobante_url}`" target="_blank" class="doc-link">Ver Comprobante</a>
-                    </template>
-                    <label v-else class="file-upload-inline">
-                      <span>Seleccionar documento</span>
-                      <input type="file" accept="image/*,.pdf" @change="onArchivoSeleccionadoFila($event, pago)" />
-                    </label>
-                  </div>
-                </td>
-                <td>
-                  <button v-if="(pago.estado || 'pendiente') !== 'pagado'" @click="registrarPago(pago)" class="btn btn-primary btn-small">
-                    Registrar pago
-                  </button>
-                  <span v-else class="text-success">Pagado</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <!-- Pestañas -->
+    <div class="mb-5 inline-flex rounded-lg border border-steel-200 bg-white p-1 shadow-card" role="tablist">
+      <button
+        v-for="tab in tabs"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        :aria-selected="vistaActual === tab.id"
+        :class="[
+          'flex cursor-pointer items-center gap-2 rounded-md border-0 px-4 py-2 text-sm font-semibold transition',
+          vistaActual === tab.id ? 'bg-carbon-900 text-white shadow-sm' : 'bg-transparent text-steel-600 hover:text-carbon-900'
+        ]"
+        @click="vistaActual = tab.id"
+      >
+        {{ tab.label }}
+        <span :class="['rounded px-1.5 text-xs', vistaActual === tab.id ? 'bg-brand-500 text-white' : 'bg-steel-100 text-steel-600']">
+          {{ tab.total }}
+        </span>
+      </button>
     </div>
+
+    <div v-if="loading" class="loading"><div class="spinner"></div></div>
+
+    <!-- Solicitudes -->
+    <div v-else-if="vistaActual === 'solicitudes'" class="mh-table-wrap">
+      <table class="mh-table">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Motocicleta</th>
+            <th class="num">Monto</th>
+            <th class="num">Plazo</th>
+            <th>Estado</th>
+            <th>Fecha</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="solicitudesPendientesFiltradas.length === 0">
+            <td colspan="7" class="mh-table-empty">
+              <p class="m-0 font-semibold text-carbon-800">No hay solicitudes</p>
+              <p class="m-0 mt-1">No se encontraron solicitudes con el filtro aplicado.</p>
+            </td>
+          </tr>
+          <tr v-for="solicitud in solicitudesPendientesFiltradas" :key="solicitud.id">
+            <td class="min-w-[14rem]">
+              <p class="m-0 font-semibold text-carbon-900">
+                {{ solicitud.nombre_cliente || solicitud.usuario_nombre || solicitud.nombre || 'Sin nombre' }}
+              </p>
+              <p class="m-0 text-xs text-steel-500">
+                CI {{ solicitud.ci_cliente || '—' }} · {{ solicitud.telefono_cliente || solicitud.telefono || 'Sin teléfono' }}
+              </p>
+              <p v-if="solicitud.direccion" class="m-0 max-w-xs truncate text-xs text-steel-400" :title="solicitud.direccion">
+                {{ solicitud.direccion }}
+              </p>
+            </td>
+            <td>{{ solicitud.marca }} {{ solicitud.modelo }}</td>
+            <td class="num whitespace-nowrap">
+              <p class="m-0 font-semibold text-carbon-900">{{ formatPrice(solicitud.monto) }}</p>
+              <p class="m-0 text-xs text-steel-500">Ingresos {{ formatPrice(solicitud.ingresos_mensuales) }}</p>
+            </td>
+            <td class="num whitespace-nowrap">{{ solicitud.plazo }} m</td>
+            <td>
+              <span :class="['mh-badge capitalize', `mh-badge-${getStatusClass(solicitud.estado)}`]">{{ solicitud.estado }}</span>
+            </td>
+            <td class="whitespace-nowrap text-xs">{{ formatDate(solicitud.created_at) }}</td>
+            <td>
+              <div class="flex justify-end gap-1.5">
+                <template v-if="isAdmin && solicitud.estado === 'pendiente'">
+                  <button type="button" class="mh-btn mh-btn-primary mh-btn-sm" @click="aprobarSolicitud(solicitud.id)">Aprobar</button>
+                  <button type="button" class="mh-btn mh-btn-sm border-red-200 bg-white text-danger-700 hover:bg-danger-50" @click="rechazarSolicitud(solicitud.id)">Rechazar</button>
+                </template>
+                <button
+                  v-if="isAdmin && ['aprobada', 'completado'].includes(solicitud.estado)"
+                  type="button"
+                  class="mh-btn mh-btn-secondary mh-btn-sm"
+                  @click="abrirControlPagos(solicitud)"
+                >
+                  Pagos
+                </button>
+                <button type="button" class="mh-btn mh-btn-secondary mh-btn-sm" title="Descargar orden de compra en PDF" @click="descargarPDF(solicitud.id)">PDF</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Créditos aprobados -->
+    <div v-else class="mh-table-wrap">
+      <table class="mh-table">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Motocicleta</th>
+            <th class="num">Monto</th>
+            <th class="num">Plazo</th>
+            <th class="num">Cuota</th>
+            <th>Estado</th>
+            <th>Próx. vencimiento</th>
+            <th>Mora</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="solicitudesAprobadas.length === 0">
+            <td colspan="9" class="mh-table-empty">No hay créditos aprobados todavía.</td>
+          </tr>
+          <tr
+            v-for="credito in solicitudesAprobadas"
+            :key="credito.id"
+            :class="{ '!bg-danger-50/60': Number(credito.cuotas_vencidas) > 0 }"
+          >
+            <td class="font-semibold text-carbon-900">{{ credito.nombre_cliente || credito.usuario_nombre || 'Sin nombre' }}</td>
+            <td class="whitespace-nowrap">{{ credito.marca }} {{ credito.modelo }}</td>
+            <td class="num whitespace-nowrap">{{ formatPrice(credito.monto) }}</td>
+            <td class="num whitespace-nowrap">{{ credito.plazo }} m</td>
+            <td class="num whitespace-nowrap font-semibold text-carbon-900">{{ formatPrice(calcularCuotaCredito(credito)) }}</td>
+            <td><span :class="['mh-badge capitalize', `mh-badge-${getStatusClass(credito.estado)}`]">{{ credito.estado }}</span></td>
+            <td class="whitespace-nowrap">{{ credito.proximo_vencimiento ? new Date(credito.proximo_vencimiento).toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—' }}</td>
+            <td>
+              <div v-if="Number(credito.cuotas_vencidas) > 0">
+                <span class="mh-badge mh-badge-danger">{{ credito.cuotas_vencidas }} vencida(s) · {{ formatPrice(credito.monto_vencido) }}</span>
+                <p class="m-0 mt-1 text-xs text-danger-700">{{ credito.dias_max_atraso }} día(s) de atraso</p>
+              </div>
+              <span v-else-if="credito.estado === 'completado'" class="mh-badge mh-badge-dark">Pagado</span>
+              <span v-else class="mh-badge mh-badge-success">Al día</span>
+            </td>
+            <td class="text-right">
+              <button type="button" class="mh-btn mh-btn-secondary mh-btn-sm" @click="abrirControlPagos(credito)">Ver pagos</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ControlPagosModal
+      v-if="creditoSeleccionado"
+      :credito-id="creditoSeleccionado.id"
+      @close="cerrarControlPagos"
+      @estado-actualizado="onEstadoCreditoActualizado"
+    />
   </div>
 </template>
 
 <script>
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
+import ControlPagosModal from '../components/ControlPagosModal.vue'
+
+const ESTADOS_CREDITO = ['aprobada', 'completado']
 
 export default {
   name: 'AdminSolicitudes',
+  components: { ControlPagosModal },
   data() {
     return {
       solicitudes: [],
       filtroEstado: '',
       loading: true,
-      modalPagosVisible: false,
-      pagosCredito: [],
       creditoSeleccionado: null,
-      vistaActual: 'solicitudes',
-      archivoComprobante: null,
-      subiendoPago: false
+      vistaActual: 'solicitudes'
     }
   },
   setup() {
@@ -235,8 +201,14 @@ export default {
       }
       return this.solicitudes.filter((s) => s.estado === this.filtroEstado)
     },
+    tabs() {
+      return [
+        { id: 'solicitudes', label: 'Solicitudes', total: this.solicitudesPendientesFiltradas.length },
+        { id: 'creditos', label: 'Créditos aprobados', total: this.solicitudesAprobadas.length }
+      ]
+    },
     solicitudesAprobadas() {
-      return this.solicitudes.filter(s => s.estado === 'aprobada')
+      return this.solicitudes.filter(s => ESTADOS_CREDITO.includes(s.estado))
     }
   },
   async mounted() {
@@ -255,15 +227,8 @@ export default {
       }
     },
 
-    onArchivoSeleccionadoFila(event, pago) {
-      const file = event.target.files && event.target.files[0] ? event.target.files[0] : null
-      if (!file) return
-      this.archivoComprobante = file
-      this.registrarPago(pago)
-    },
-
     calcularCuotaCredito(credito) {
-      const monto = Number(credito.monto || 0)
+      const monto = Math.max(Number(credito.monto || 0) - Number(credito.cuota_inicial || 0), 0)
       const plazo = Number(credito.plazo || 0)
       const tasa = Number(credito.tasa_interes || 0.02)
       const tasaMensual = tasa > 1 ? tasa / 100 : tasa
@@ -275,66 +240,20 @@ export default {
         : 0
     },
 
-    async abrirControlPagos(credito) {
+    abrirControlPagos(credito) {
       this.creditoSeleccionado = credito
-      this.modalPagosVisible = true
-      this.archivoComprobante = null
-      await this.cargarPagos(credito.id)
     },
 
     cerrarControlPagos() {
-      this.modalPagosVisible = false
       this.creditoSeleccionado = null
-      this.pagosCredito = []
-      this.archivoComprobante = null
+      // Refresca mora / próximas fechas límite tras registrar pagos
+      this.cargarSolicitudes()
     },
 
-    async cargarPagos(creditoId) {
-      try {
-        const response = await axios.get(`/api/solicitudes-credito/${creditoId}/pagos`)
-        this.pagosCredito = response.data
-      } catch (error) {
-        console.error('Error cargando pagos:', error)
-        this.pagosCredito = []
-      }
-    },
-
-    async registrarPago(pago) {
-      if (this.subiendoPago) return
-
-      try {
-        this.subiendoPago = true
-
-        const formData = new FormData()
-        formData.append('numero_cuota', pago.numero_cuota)
-        formData.append('monto', pago.monto)
-        formData.append('estado', 'pagado')
-        formData.append('fecha_pago', new Date().toISOString())
-
-        if (this.archivoComprobante) {
-          formData.append('comprobante', this.archivoComprobante)
-        }
-
-        await axios.post(
-          `/api/solicitudes-credito/${this.creditoSeleccionado.id}/pagos`,
-          formData,
-          {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          }
-        )
-
-        await this.cargarPagos(this.creditoSeleccionado.id)
-        this.archivoComprobante = null
-        const input = document.getElementById('comprobante-pago')
-        if (input) input.value = ''
-      } catch (error) {
-        console.error('Error registrando pago:', error)
-        alert('No se pudo registrar el pago.')
-      } finally {
-        this.subiendoPago = false
-      }
+    // El modal avisa cuando el crédito cambia de estado (p. ej. a "completado")
+    onEstadoCreditoActualizado({ id, estado }) {
+      const solicitud = this.solicitudes.find((s) => s.id === id)
+      if (solicitud) solicitud.estado = estado
     },
     
     aplicarFiltros() {
@@ -345,7 +264,8 @@ export default {
       switch (estado) {
         case 'pendiente': return 'warning'
         case 'aprobada': return 'success'
-        case 'rechazada': return 'error'
+        case 'rechazada': return 'danger'
+        case 'completado': return 'dark'
         default: return 'warning'
       }
     },
@@ -421,9 +341,9 @@ export default {
     
     formatDate(dateString) {
       const date = new Date(dateString)
-      return date.toLocaleDateString('es-MX', {
+      return date.toLocaleDateString('es-BO', {
         year: 'numeric',
-        month: 'long',
+        month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
@@ -432,281 +352,3 @@ export default {
   }
 }
 </script>
-
-<style scoped>
-.admin-solicitudes {
-  padding: 2rem 0 3rem;
-}
-
-.admin-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.admin-header h1 {
-  color: var(--primary-blue);
-  margin: 0;
-  font-size: clamp(2rem, 2.6vw, 2.6rem);
-}
-
-.filtros select {
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--gray-200);
-  border-radius: 0.8rem;
-  background: rgba(255,255,255,0.9);
-  color: var(--gray-700);
-  font-weight: 600;
-}
-
-.no-data {
-  text-align: center;
-  padding: 3rem;
-  color: var(--gray-600);
-  background: rgba(255,255,255,0.8);
-  border-radius: 1rem;
-  border: 1px solid rgba(15,23,42,0.05);
-}
-
-.solicitudes-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.solicitud-card {
-  padding: 2rem;
-  transition: all 0.25s ease;
-  background: linear-gradient(180deg, rgba(255,255,255,0.99), rgba(248,250,252,0.96));
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 1.2rem;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
-}
-
-.solicitud-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
-}
-
-.solicitud-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.solicitud-info h3 {
-  color: var(--primary-blue);
-  margin-bottom: 0.35rem;
-  font-size: 1.35rem;
-}
-
-.solicitud-info p {
-  color: var(--gray-600);
-  margin-bottom: 0.2rem;
-  font-size: 0.9rem;
-}
-
-.solicitud-details {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 1.5rem;
-}
-
-.detail-group h4 {
-  color: var(--gray-700);
-  font-size: 0.78rem;
-  margin-bottom: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.detail-group p {
-  color: var(--gray-800);
-  font-weight: 600;
-}
-
-.detail-group .monto {
-  color: var(--secondary-blue);
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.solicitud-address {
-  margin-bottom: 1.5rem;
-  padding: 1rem 1.1rem;
-  background: linear-gradient(180deg, rgba(148,163,184,0.08), rgba(255,255,255,0.6));
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: 0.8rem;
-}
-
-.solicitud-address h4 {
-  color: var(--gray-700);
-  font-size: 0.8rem;
-  margin-bottom: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.solicitud-address p {
-  color: var(--gray-800);
-  line-height: 1.5;
-}
-
-.solicitud-actions {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.solicitud-actions .btn {
-  flex: 1;
-  padding: 0.8rem 1.3rem;
-}
-
-.solicitud-fecha {
-  text-align: right;
-  color: var(--gray-500);
-  font-size: 0.875rem;
-}
-
-.view-tabs {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  padding-bottom: 0.75rem;
-}
-
-.tab-btn {
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--gray-700);
-  padding: 0.75rem 1.2rem;
-  border-radius: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.tab-btn.active {
-  background: var(--primary-blue);
-  color: white;
-  border-color: var(--primary-blue);
-}
-
-.approved-table-wrapper {
-  overflow-x: auto;
-  background: rgba(255,255,255,0.8);
-  border-radius: 1rem;
-  border: 1px solid rgba(15,23,42,0.08);
-  box-shadow: 0 8px 24px rgba(15,23,42,0.06);
-}
-
-.approved-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 700px;
-}
-
-.approved-table th,
-.approved-table td {
-  padding: 1rem 0.85rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  text-align: left;
-}
-
-.approved-table th {
-  color: var(--gray-700);
-  background: rgba(148, 163, 184, 0.08);
-}
-
-.payments-table-wrapper {
-  overflow-x: auto;
-  background: rgba(255,255,255,0.82);
-  border-radius: 1rem;
-  border: 1px solid rgba(15,23,42,0.08);
-  padding: 1rem;
-}
-
-.payments-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 700px;
-}
-
-.payments-table th,
-.payments-table td {
-  text-align: left;
-  padding: 0.9rem 0.75rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.comprobante-cell {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-}
-
-.file-upload-inline {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  background: rgba(59, 130, 246, 0.04);
-  border: 1px dashed rgba(37, 99, 235, 0.4);
-  border-radius: 0.7rem;
-  padding: 0.5rem 0.7rem;
-  color: var(--gray-700);
-  font-size: 0.78rem;
-}
-
-.file-upload-inline input {
-  max-width: 160px;
-}
-
-.doc-link {
-  color: var(--primary-blue);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.text-muted {
-  color: var(--gray-500);
-}
-
-.text-success {
-  color: #15803d;
-  font-weight: 700;
-}
-
-@media (max-width: 768px) {
-  .admin-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-  
-  .solicitud-header {
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .solicitud-details {
-    grid-template-columns: 1fr;
-  }
-  
-  .solicitud-actions {
-    flex-direction: column;
-  }
-}
-</style>
-
-
-
-
-

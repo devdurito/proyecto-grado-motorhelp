@@ -3,8 +3,7 @@
     <div class="container">
       <div class="footer-content">
         <div class="footer-section">
-          <h3>MOTORHELP</h3>
-          <p>Libertad Financiera sobre Ruedas</p>
+          <img src="../assets/logo-motorhelp.jpeg" alt="MOTORHELP — Libertad Financiera sobre Ruedas" class="footer-logo">
           <p>Tu mejor opción para adquirir la motocicleta de tus sueños con las mejores condiciones de financiamiento.</p>
         </div>
         
@@ -49,6 +48,15 @@ export default {
 </script>
 
 <style scoped>
+.footer-logo {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  margin-bottom: 1rem;
+  border-radius: 0.5rem;
+}
+
 .footer {
   background: var(--gray-900);
   color: var(--white);

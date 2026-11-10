@@ -2,10 +2,13 @@
   <div class="login">
     <div class="container">
       <div class="login-container">
+        <div v-if="redirectDestino" class="auth-redirect-notice">
+          🔒 Debes iniciar sesión o crear una cuenta para acceder a <strong>{{ destinoLabel }}</strong>.
+        </div>
         <div class="login-card">
           <div class="login-header">
-            <h1>MOTORHELP</h1>
-            <p>Libertad Financiera sobre Ruedas</p>
+            <router-link to="/" class="auth-back">← Volver al inicio</router-link>
+            <img src="../assets/logo-motorhelp.jpeg" alt="MOTORHELP — Libertad Financiera sobre Ruedas" class="brand-logo">
             <h2>Iniciar Sesión</h2>
           </div>
 
@@ -43,7 +46,7 @@
 
           <div class="login-footer">
             <p>¿No tienes cuenta?</p>
-            <router-link to="/register" class="btn btn-secondary login-link">Crear Cuenta</router-link>
+            <router-link :to="{ path: '/register', query: $route.query }" class="btn btn-secondary login-link">Crear Cuenta</router-link>
           </div>
         </div>
       </div>
@@ -53,6 +56,7 @@
 
 <script>
 import { useAuthStore } from '../stores/auth'
+import { obtenerRedirectSeguro } from '../composables/useRedirect'
 
 export default {
   name: 'Login',
@@ -70,6 +74,17 @@ export default {
     const authStore = useAuthStore()
     return { authStore }
   },
+  computed: {
+    redirectDestino() {
+      return obtenerRedirectSeguro(this.$route)
+    },
+    destinoLabel() {
+      const destino = this.redirectDestino || ''
+      if (destino.startsWith('/calculadora') || destino.startsWith('/catalogo/')) return 'la Calculadora de Créditos'
+      if (destino.startsWith('/admin')) return 'el panel de administración'
+      return 'esta sección'
+    }
+  },
   methods: {
     async login() {
       this.loading = true
@@ -78,7 +93,7 @@ export default {
       const result = await this.authStore.login(this.formData)
       
       if (result.success) {
-        this.$router.push('/')
+        this.$router.push(obtenerRedirectSeguro(this.$route) || '/')
       } else {
         this.error = result.message
       }
@@ -90,9 +105,45 @@ export default {
 </script>
 
 <style scoped>
+.brand-logo {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  margin: 0 auto 1.25rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 14px rgba(1, 86, 213, 0.25);
+}
+
+.auth-back {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-decoration: none;
+}
+
+.auth-back:hover {
+  color: var(--brand);
+}
+
+.auth-redirect-notice {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  border-left: 4px solid var(--accent-blue);
+  background: #fffbeb;
+  color: var(--gray-800);
+  font-size: 0.95rem;
+}
+
 .login {
   min-height: 100vh;
-  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--secondary-blue) 100%);
+  background:
+    radial-gradient(circle at 85% 15%, rgba(1, 86, 213, 0.22), transparent 45%),
+    repeating-linear-gradient(45deg, transparent 0 14px, rgba(255, 255, 255, 0.025) 14px 28px),
+    linear-gradient(160deg, #0A1B3D 0%, #11285A 100%);
   display: flex;
   align-items: center;
   justify-content: center;
